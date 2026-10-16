@@ -1,0 +1,4 @@
+/.cache/
+/.dart_tool/
+/build/
+/coverage/
