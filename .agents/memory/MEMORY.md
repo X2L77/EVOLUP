@@ -1,0 +1,1 @@
+- [Flutter web preview refresh](flutter-web-preview-refresh.md) — a blank first capture after rebuild may be a service-worker update; wait for activation and reload.
