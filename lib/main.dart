@@ -1,7 +1,25 @@
 // ignore_for_file: sort_child_properties_last
 
 import 'package:flutter/material.dart';
-void main() {
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'config/supabase_config.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  if (SupabaseConfig.isConfigured) {
+    await Supabase.initialize(
+      url: SupabaseConfig.projectUrl,
+      publishableKey: SupabaseConfig.publishableKey,
+    );
+  } else {
+    debugPrint(
+      'Supabase is not initialized. Start the app with SUPABASE_URL and '
+      'SUPABASE_PUBLISHABLE_KEY.',
+    );
+  }
+
   runApp(const MyApp());
 }
 
