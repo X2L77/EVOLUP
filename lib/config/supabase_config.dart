@@ -4,8 +4,12 @@
 /// These values are injected with `--dart-define` for the Flutter client.
 abstract final class SupabaseConfig {
   static const projectUrl = String.fromEnvironment('SUPABASE_URL');
-  static const publishableKey =
-      String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
+  static const publishableKey = String.fromEnvironment(
+    'SUPABASE_PUBLISHABLE_KEY',
+  );
+  static const authRedirectUrl = String.fromEnvironment(
+    'SUPABASE_AUTH_REDIRECT_URL',
+  );
 
   static bool get isConfigured =>
       projectUrl.isNotEmpty && publishableKey.isNotEmpty;

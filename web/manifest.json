@@ -1,11 +1,11 @@
 {
-    "name": "my_training",
-    "short_name": "my_training",
+    "name": "EVOLUP",
+    "short_name": "EVOLUP",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#101114",
+    "theme_color": "#C99A3B",
+    "description": "EVOLUP — progressez à votre rythme.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
