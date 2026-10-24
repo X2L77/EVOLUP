@@ -1,4 +1,5 @@
 import '../../auth/auth_error.dart';
+import '../../auth/social_auth_provider.dart';
 import 'email_auth_controller.dart';
 
 const minimumPasswordLength = 8;
@@ -25,6 +26,11 @@ String authFailureMessage(AuthFailure failure) => switch (failure) {
     'La création de compte est momentanément indisponible.',
   AuthFailure.sessionExpired =>
     'Votre lien de récupération a expiré. Demandez-en un nouveau.',
+  AuthFailure.oauthCancelled =>
+    'Connexion annulée. Réessayez ou utilisez votre adresse e-mail.',
+  AuthFailure.oauthFailed =>
+    'La connexion n’a pas pu aboutir. Réessayez ou utilisez votre adresse '
+        'e-mail.',
   AuthFailure.network =>
     'Connexion impossible. Vérifiez votre accès à Internet et réessayez.',
   AuthFailure.notConfigured =>
@@ -47,6 +53,26 @@ String authNoticeMessage(EmailAuthNotice notice) => switch (notice) {
   EmailAuthNotice.resetEmailSent =>
     'Si un compte correspond à cette adresse, un lien de réinitialisation '
         'vient de lui être envoyé.',
+  EmailAuthNotice.oauthPending =>
+    'Terminez la connexion dans la fenêtre qui vient de s’ouvrir. Si vous '
+        'l’avez fermée, vous pouvez réessayer.',
+};
+
+String socialUnavailableMessage(
+  SocialAuthProvider provider,
+  SocialAvailability availability,
+) => switch (availability) {
+  SocialAvailability.unknown =>
+    'La disponibilité de la connexion avec ${provider.label} n’a pas pu être '
+        'vérifiée. Vérifiez votre accès à Internet.',
+  SocialAvailability.unsupportedPlatform =>
+    'La connexion avec ${provider.label} n’est pas disponible sur cette '
+        'plateforme. Utilisez votre adresse e-mail.',
+  SocialAvailability.checking =>
+    'Vérification de la connexion avec ${provider.label} en cours…',
+  _ =>
+    'La connexion avec ${provider.label} n’est pas encore configurée. '
+        'Utilisez votre adresse e-mail.',
 };
 
 bool isValidEmail(String email) =>

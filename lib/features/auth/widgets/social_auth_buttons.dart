@@ -1,17 +1,25 @@
 import 'package:flutter/material.dart';
 
-import '../../../config/social_auth_config.dart';
-import '../../../theme/auth_theme.dart';
+import '../../../app/widgets/button_spinner.dart';
+import '../../../auth/social_auth_provider.dart';
+import '../../../theme/evolup_theme.dart';
 
 /// Google and Apple buttons (build guide §1.5).
 ///
-/// No provider is wired yet: an unverified provider never starts a sign-in.
-/// Its button stays visible, is labelled « Non configuré » and explains the
-/// situation when pressed.
+/// A provider only starts a sign-in when it is enabled in the Supabase
+/// project and this platform can receive the OAuth callback. Otherwise the
+/// button stays visible, says why, and explains it when pressed.
 class SocialAuthButtons extends StatelessWidget {
-  const SocialAuthButtons({required this.onUnavailable, super.key});
+  const SocialAuthButtons({
+    required this.availabilityOf,
+    required this.loadingProvider,
+    required this.onPressed,
+    super.key,
+  });
 
-  final ValueChanged<SocialAuthProvider> onUnavailable;
+  final SocialAvailability Function(SocialAuthProvider provider) availabilityOf;
+  final SocialAuthProvider? loadingProvider;
+  final ValueChanged<SocialAuthProvider> onPressed;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -22,7 +30,9 @@ class SocialAuthButtons extends StatelessWidget {
           const SizedBox(height: 10),
         _SocialButton(
           provider: provider,
-          onPressed: () => onUnavailable(provider),
+          availability: availabilityOf(provider),
+          loading: loadingProvider == provider,
+          onPressed: () => onPressed(provider),
         ),
       ],
     ],
@@ -30,62 +40,75 @@ class SocialAuthButtons extends StatelessWidget {
 }
 
 class _SocialButton extends StatelessWidget {
-  const _SocialButton({required this.provider, required this.onPressed});
+  const _SocialButton({
+    required this.provider,
+    required this.availability,
+    required this.loading,
+    required this.onPressed,
+  });
 
   final SocialAuthProvider provider;
+  final SocialAvailability availability;
+  final bool loading;
   final VoidCallback onPressed;
+
+  String? get _status => switch (availability) {
+    SocialAvailability.available => null,
+    SocialAvailability.checking => 'Vérification…',
+    SocialAvailability.notConfigured => 'Non configuré',
+    SocialAvailability.unknown => 'Indisponible',
+    SocialAvailability.unsupportedPlatform => 'Non disponible ici',
+  };
 
   @override
   Widget build(BuildContext context) {
-    final available = SocialAuthConfig.isAvailable(provider);
+    final status = _status;
     final textTheme = Theme.of(context).textTheme;
+    final label = 'Continuer avec ${provider.label}';
     return Semantics(
       button: true,
-      label: available
-          ? 'Continuer avec ${provider.label}'
-          : 'Continuer avec ${provider.label}, non configuré',
+      label: status == null ? label : '$label, ${status.toLowerCase()}',
       excludeSemantics: true,
       child: OutlinedButton(
         key: Key('auth-${provider.name}'),
-        onPressed: onPressed,
+        onPressed: loading ? null : onPressed,
         style: OutlinedButton.styleFrom(
           minimumSize: const Size.fromHeight(50),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          backgroundColor: AuthColors.fieldFill,
-          foregroundColor: AuthColors.textPrimary,
-          side: const BorderSide(color: AuthColors.glassBorder),
+          backgroundColor: EvolupColors.fieldFill,
+          foregroundColor: EvolupColors.textPrimary,
+          side: const BorderSide(color: EvolupColors.glassBorder),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
         ),
-        child: Opacity(
-          opacity: available ? 1 : 0.6,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _ProviderMark(provider),
-              const SizedBox(width: 10),
-              Flexible(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+        child: loading
+            ? const ButtonSpinner(color: EvolupColors.textPrimary)
+            : Opacity(
+                opacity: status == null ? 1 : 0.6,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      'Continuer avec ${provider.label}',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (!available)
-                      Text(
-                        'Non configuré',
-                        style: textTheme.labelSmall?.copyWith(
-                          color: AuthColors.textSecondary,
-                        ),
+                    _ProviderMark(provider),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(label, overflow: TextOverflow.ellipsis),
+                          if (status != null)
+                            Text(
+                              status,
+                              style: textTheme.labelSmall?.copyWith(
+                                color: EvolupColors.textSecondary,
+                              ),
+                            ),
+                        ],
                       ),
+                    ),
                   ],
                 ),
               ),
-            ],
-          ),
-        ),
       ),
     );
   }

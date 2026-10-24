@@ -2,70 +2,28 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../app/theme_preferences_screen.dart';
+import '../../app/evolup_logo.dart';
+import '../../app/widgets/evolup_background.dart';
+import '../../app/widgets/glass_card.dart';
 import '../../data/athlete_profile.dart';
-import '../../data/preferences_store.dart';
-import '../../theme/app_theme.dart';
+import '../../theme/evolup_theme.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     required this.profile,
-    required this.themeController,
     required this.onEditProfile,
-    required this.onThemeChanged,
     required this.onSignOut,
     super.key,
   });
 
   final AthleteProfile profile;
-  final ThemeController themeController;
   final VoidCallback onEditProfile;
-  final Future<void> Function(ThemePreferences) onThemeChanged;
   final Future<void> Function() onSignOut;
-
-  Future<void> _showPreferences(BuildContext context) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (context) {
-        var preferences = themeController.value;
-        return StatefulBuilder(
-          builder: (context, setModalState) => SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
-              child: ThemePreferencesScreen(
-                preferences: preferences,
-                onChanged: (value) async {
-                  setModalState(() => preferences = value);
-                  try {
-                    await onThemeChanged(value);
-                  } catch (_) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Les préférences de thème n’ont pas pu être '
-                            'enregistrées. Vérifiez votre connexion et '
-                            'réessayez.',
-                          ),
-                        ),
-                      );
-                    }
-                  }
-                },
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 
   Future<void> _signOut(BuildContext context) async {
     try {
       await onSignOut();
-    } catch (_) {
+    } on Object {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('La déconnexion a échoué. Réessayez.')),
@@ -76,95 +34,111 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('EVOLUP'),
-        actions: [
-          IconButton(
-            tooltip: 'Préférences',
-            onPressed: () => unawaited(_showPreferences(context)),
-            icon: const Icon(Icons.tune),
-          ),
-          IconButton(
-            tooltip: 'Se déconnecter',
-            onPressed: () => unawaited(_signOut(context)),
-            icon: const Icon(Icons.logout),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 720),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Bienvenue dans votre parcours.',
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
+    final textTheme = Theme.of(context).textTheme;
+    final goal = profile.goalDetails == null
+        ? profile.primaryGoal
+        : '${profile.primaryGoal} — ${profile.goalDetails}';
+    return EvolupBackground(
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          titleSpacing: 20,
+          title: const EvolupLogo(size: 30),
+          actions: [
+            IconButton(
+              tooltip: 'Se déconnecter',
+              onPressed: () => unawaited(_signOut(context)),
+              icon: const Icon(Icons.logout_rounded),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 720),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Bienvenue dans votre parcours.',
+                      style: textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.5,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Votre profil est enregistré. EVOLUP se construit '
-                    'progressivement, à votre rythme.',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                    const SizedBox(height: 8),
+                    Text(
+                      'Votre profil est enregistré. EVOLUP se construit '
+                      'progressivement, à votre rythme.',
+                      style: textTheme.bodyLarge?.copyWith(
+                        color: EvolupColors.textSecondary,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(22),
+                    const SizedBox(height: 24),
+                    GlassCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             'Votre profil sportif',
-                            style: theme.textTheme.titleLarge?.copyWith(
+                            style: textTheme.titleLarge?.copyWith(
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                           const SizedBox(height: 16),
+                          _SummaryLine(label: 'Objectif', value: goal),
+                          _SummaryLine(label: 'Niveau', value: profile.level),
                           _SummaryLine(
-                            label: 'Objectif principal',
-                            value: profile.primaryGoal ?? 'Non renseigné',
+                            label: 'Séances',
+                            value:
+                                '${profile.weeklySessions} par semaine · '
+                                '${profile.trainingDays.join(', ')}',
                           ),
                           _SummaryLine(
-                            label: 'Sports',
-                            value: profile.sports.join(', '),
+                            label: 'Durée',
+                            value: '${profile.sessionDurationMinutes} minutes',
                           ),
                           _SummaryLine(
-                            label: 'Niveau',
-                            value: profile.level ?? 'Non renseigné',
+                            label: 'Lieux',
+                            value: profile.trainingLocations.join(', '),
                           ),
+                          if (profile.trainsAtHome)
+                            _SummaryLine(
+                              label: 'Matériel',
+                              value: profile.homeEquipment.join(', '),
+                            ),
                           const SizedBox(height: 12),
                           OutlinedButton.icon(
+                            key: const Key('home-edit-profile'),
                             onPressed: onEditProfile,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: EvolupColors.textPrimary,
+                              side: const BorderSide(
+                                color: EvolupColors.glassBorder,
+                              ),
+                            ),
                             icon: const Icon(Icons.edit_outlined),
                             label: const Text('Modifier mon profil'),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(22),
+                    const SizedBox(height: 16),
+                    const GlassCard(
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Icon(
                             Icons.chat_bubble_outline,
-                            color: theme.colorScheme.primary,
+                            color: EvolupColors.focus,
                           ),
-                          const SizedBox(width: 14),
-                          const Expanded(
+                          SizedBox(width: 14),
+                          Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -184,8 +158,8 @@ class HomeScreen extends StatelessWidget {
                         ],
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -203,20 +177,20 @@ class _SummaryLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.only(bottom: 10),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          width: 150,
+          width: 96,
           child: Text(
             label,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: EvolupColors.textSecondary),
           ),
         ),
-        Expanded(child: Text(value.isEmpty ? 'Non renseigné' : value)),
+        Expanded(child: Text(value)),
       ],
     ),
   );

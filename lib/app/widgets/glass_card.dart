@@ -2,7 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
-import '../../../theme/auth_theme.dart';
+import '../../theme/evolup_theme.dart';
 
 /// Discreet translucent "liquid glass" surface (build guide §1.5): a light
 /// blur of what is behind, a faint gradient fill and a thin border.
@@ -12,6 +12,7 @@ class GlassCard extends StatelessWidget {
     this.padding = const EdgeInsets.all(24),
     this.radius = 24,
     this.blur = 18,
+    this.tint,
     super.key,
   });
 
@@ -20,25 +21,31 @@ class GlassCard extends StatelessWidget {
   final double radius;
   final double blur;
 
+  /// Optional color laid under the glass fill (e.g. a dark tint for
+  /// surfaces floating over content).
+  final Color? tint;
+
   @override
   Widget build(BuildContext context) {
     final shape = BorderRadius.circular(radius);
+    Widget glass = DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: shape,
+        border: Border.all(color: EvolupColors.glassBorder),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [EvolupColors.glassFillTop, EvolupColors.glassFillBottom],
+        ),
+      ),
+      child: Padding(padding: padding, child: child),
+    );
+    if (tint != null) glass = ColoredBox(color: tint!, child: glass);
     return ClipRRect(
       borderRadius: shape,
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            borderRadius: shape,
-            border: Border.all(color: AuthColors.glassBorder),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [AuthColors.glassFillTop, AuthColors.glassFillBottom],
-            ),
-          ),
-          child: Padding(padding: padding, child: child),
-        ),
+        child: glass,
       ),
     );
   }

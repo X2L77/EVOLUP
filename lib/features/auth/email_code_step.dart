@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../auth/auth_error.dart';
-import '../../theme/auth_theme.dart';
+import '../../theme/evolup_theme.dart';
 import 'auth_messages.dart';
 import 'email_auth_controller.dart';
-import 'widgets/auth_message.dart';
-import 'widgets/button_spinner.dart';
+import '../../app/widgets/status_message.dart';
+import '../../app/widgets/button_spinner.dart';
 
 /// Second step of account creation: the code sent by email. The code is
 /// checked by Supabase, which only opens a session when it is valid.
@@ -60,18 +60,18 @@ class _EmailCodeStepState extends State<EmailCodeStep> {
             controller.pendingEmail ?? '',
             key: const Key('auth-code-email'),
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: AuthColors.textSecondary,
+              color: EvolupColors.textSecondary,
             ),
           ),
           if (notice != null) ...[
             const SizedBox(height: 16),
-            AuthMessage(message: authNoticeMessage(notice)),
+            StatusMessage(message: authNoticeMessage(notice)),
           ],
           if (failure != null) ...[
             const SizedBox(height: 16),
-            AuthMessage(
+            StatusMessage(
               message: authFailureMessage(failure),
-              kind: AuthMessageKind.error,
+              kind: StatusMessageKind.error,
             ),
           ],
           const SizedBox(height: 18),
@@ -113,7 +113,7 @@ class _EmailCodeStepState extends State<EmailCodeStep> {
                 ? null
                 : controller.resendCode,
             child: resending
-                ? const ButtonSpinner(color: AuthColors.textPrimary)
+                ? const ButtonSpinner(color: EvolupColors.textPrimary)
                 : Text(
                     secondsLeft > 0
                         ? 'Renvoyer le code ($secondsLeft s)'

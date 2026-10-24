@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../auth/auth_error.dart';
 import '../../auth/auth_repository.dart';
+import '../../auth/social_auth_provider.dart';
 
 enum EmailAuthStep { credentials, code }
 
@@ -14,9 +15,10 @@ enum EmailAuthAction {
   verifyCode,
   resendCode,
   resetPassword,
+  social,
 }
 
-enum EmailAuthNotice { codeSent, codeResent, resetEmailSent }
+enum EmailAuthNotice { codeSent, codeResent, resetEmailSent, oauthPending }
 
 /// Email authentication flow of the sign-in screen.
 ///
@@ -28,10 +30,12 @@ class EmailAuthController extends ChangeNotifier {
   EmailAuthController(
     this._auth, {
     this.resendDelay = const Duration(seconds: 60),
+    this.socialPlatformSupported = true,
   });
 
   final AuthRepository? _auth;
   final Duration resendDelay;
+  final bool socialPlatformSupported;
 
   EmailAuthStep _step = EmailAuthStep.credentials;
   EmailAuthAction? _busy;
@@ -41,6 +45,9 @@ class EmailAuthController extends ChangeNotifier {
   int _resendSecondsLeft = 0;
   Timer? _resendTimer;
   bool _disposed = false;
+  Set<SocialAuthProvider>? _enabledProviders;
+  bool _providersUnknown = false;
+  SocialAuthProvider? _socialProvider;
 
   EmailAuthStep get step => _step;
   EmailAuthAction? get busy => _busy;
@@ -49,6 +56,46 @@ class EmailAuthController extends ChangeNotifier {
   EmailAuthNotice? get notice => _notice;
   String? get pendingEmail => _pendingEmail;
   int get resendSecondsLeft => _resendSecondsLeft;
+
+  /// Provider of the OAuth sign-in being opened or awaited.
+  SocialAuthProvider? get socialProvider => _socialProvider;
+
+  SocialAvailability availabilityOf(SocialAuthProvider provider) {
+    if (_auth == null) return SocialAvailability.notConfigured;
+    if (!socialPlatformSupported) return SocialAvailability.unsupportedPlatform;
+    if (_providersUnknown) return SocialAvailability.unknown;
+    final enabled = _enabledProviders;
+    if (enabled == null) return SocialAvailability.checking;
+    return enabled.contains(provider)
+        ? SocialAvailability.available
+        : SocialAvailability.notConfigured;
+  }
+
+  /// Reads which OAuth providers are enabled in the Supabase project.
+  Future<void> loadSocialProviders() async {
+    final auth = _auth;
+    if (auth == null || !socialPlatformSupported) return;
+    try {
+      _enabledProviders = await auth.enabledSocialProviders();
+      _providersUnknown = false;
+    } on Object {
+      _providersUnknown = true;
+    }
+    _notify();
+  }
+
+  /// Opens the provider's page. The session (or a failure) comes back later
+  /// through the auth state, never from this call.
+  Future<void> signInWithProvider(SocialAuthProvider provider) {
+    if (availabilityOf(provider) != SocialAvailability.available) {
+      return Future.value();
+    }
+    return _run(EmailAuthAction.social, (auth) async {
+      _socialProvider = provider;
+      await auth.signInWithProvider(provider);
+      _notice = EmailAuthNotice.oauthPending;
+    });
+  }
 
   Future<void> signIn({required String email, required String password}) =>
       _run(EmailAuthAction.signIn, (auth) async {

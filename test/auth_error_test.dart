@@ -52,4 +52,26 @@ void main() {
     );
     expect(classifyAuthError(StateError('bug')), AuthFailure.unknown);
   });
+
+  test('OAuth returns are reported without claiming success', () {
+    expect(
+      classifyAuthError(const AuthException('denied', code: 'access_denied')),
+      AuthFailure.oauthCancelled,
+    );
+    for (final code in [
+      'bad_oauth_state',
+      'flow_state_expired',
+      'oauth_launch_failed',
+    ]) {
+      expect(
+        classifyAuthError(AuthException('x', code: code)),
+        AuthFailure.oauthFailed,
+        reason: code,
+      );
+    }
+    expect(
+      classifyAuthError(const AuthPKCEGrantCodeExchangeError('x')),
+      AuthFailure.oauthFailed,
+    );
+  });
 }

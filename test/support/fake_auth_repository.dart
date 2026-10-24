@@ -1,15 +1,20 @@
 import 'dart:async';
 
+import 'package:my_training/auth/auth_error.dart';
 import 'package:my_training/auth/auth_repository.dart';
+import 'package:my_training/auth/social_auth_provider.dart';
 
 /// In-memory auth repository. Tests never contact Supabase.
 class FakeAuthRepository implements AuthRepository {
-  FakeAuthRepository({this.currentUserId});
+  FakeAuthRepository({this.currentUserId, this.enabledProviders = const {}});
 
   @override
   String? currentUserId;
   final changes = StreamController<String?>.broadcast(sync: true);
   final recoveryChanges = StreamController<void>.broadcast(sync: true);
+  final failures = StreamController<AuthFailure>.broadcast(sync: true);
+  Set<SocialAuthProvider> enabledProviders;
+  Object? providersError;
   Object? signInError;
   Object? signUpError;
   Object? verifyError;
@@ -23,6 +28,7 @@ class FakeAuthRepository implements AuthRepository {
   int resetCalls = 0;
   int signOutCalls = 0;
   int passwordUpdates = 0;
+  final socialSignIns = <SocialAuthProvider>[];
   String? lastVerifiedEmail;
   String? lastVerifiedCode;
   String? lastResentEmail;
@@ -33,8 +39,11 @@ class FakeAuthRepository implements AuthRepository {
   @override
   Stream<void> get passwordRecoveryEvents => recoveryChanges.stream;
 
-  void _openSession() {
-    currentUserId = 'user-1';
+  @override
+  Stream<AuthFailure> get authFailures => failures.stream;
+
+  void openSession([String userId = 'user-1']) {
+    currentUserId = userId;
     changes.add(currentUserId);
   }
 
@@ -43,14 +52,14 @@ class FakeAuthRepository implements AuthRepository {
     signInCalls++;
     await signInCompleter?.future;
     if (signInError case final error?) throw error;
-    _openSession();
+    openSession();
   }
 
   @override
   Future<bool> signUp({required String email, required String password}) async {
     signUpCalls++;
     if (signUpError case final error?) throw error;
-    if (signUpHasSession) _openSession();
+    if (signUpHasSession) openSession();
     return signUpHasSession;
   }
 
@@ -63,7 +72,7 @@ class FakeAuthRepository implements AuthRepository {
     lastVerifiedEmail = email;
     lastVerifiedCode = code;
     if (verifyError case final error?) throw error;
-    _openSession();
+    openSession();
   }
 
   @override
@@ -84,6 +93,17 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<Set<SocialAuthProvider>> enabledSocialProviders() async {
+    if (providersError case final error?) throw error;
+    return enabledProviders;
+  }
+
+  @override
+  Future<void> signInWithProvider(SocialAuthProvider provider) async {
+    socialSignIns.add(provider);
+  }
+
+  @override
   Future<void> signOut() async {
     signOutCalls++;
     currentUserId = null;
@@ -93,5 +113,6 @@ class FakeAuthRepository implements AuthRepository {
   Future<void> dispose() async {
     await changes.close();
     await recoveryChanges.close();
+    await failures.close();
   }
 }

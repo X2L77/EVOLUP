@@ -2,65 +2,74 @@
 
 EVOLUP is a Flutter app for building a personal sports progression journey.
 Implemented so far: the first-launch sign-in screen of the build guide
-(Supabase email authentication with an email code at sign-up), saved theme
-preferences, and a resumable athlete-profile onboarding questionnaire.
+(Supabase email authentication with an email code at sign-up, Google and Apple
+OAuth ready to be enabled), the initial questionnaire saved to Supabase, a
+home screen showing the saved profile, a floating navigation bar, and a Coach
+IA chat answered by Polomix through a Supabase Edge Function (Statistiques is
+a « bientôt disponible » page for now).
 
 The living specification is [`SPEC_PROJECT.md`](SPEC_PROJECT.md).
 
 ## Architecture
 
-- `lib/main.dart` initializes local preferences and, when configured, the
-  Supabase client.
-- `lib/app/` contains the application gate and reusable theme-preference UI.
-- `lib/auth/` contains the authentication repository boundary and Supabase
-  implementation.
-- `lib/data/` contains the athlete-profile model, Supabase repository, and
-  local theme-preference store.
-- `lib/theme/` defines the four palettes and light/dark Material themes.
-- `lib/features/auth/`, `lib/features/onboarding/`, and `lib/features/home/`
-  contain the entry, profile questionnaire, and post-onboarding screens.
-  The sign-in flow logic is `EmailAuthController`; Supabase errors are
-  classified by code in `lib/auth/auth_error.dart`.
-- `lib/app/evolup_logo.dart` is the only place that draws the logo; replace
-  its `build` method to swap in a final asset.
-- `lib/config/social_auth_config.dart` lists the social providers that have
-  been verified (none yet).
-- `supabase/migrations/` contains the profile schema, grants, and row-level
-  security policies.
+- `lib/main.dart` creates the local questionnaire-draft store and, when
+  configured, the Supabase client and repositories.
+- `lib/app/` contains `EvolupApp`/`AppGate` (sign-in → questionnaire →
+  main destinations), `shell/` (`AppShell` and the floating `EvolupNavBar`:
+  Coach IA · Home · Statistiques), the logo (`evolup_logo.dart`, the only
+  place that draws it) and shared visual widgets (`widgets/`: background,
+  glass card, messages, button feedback, « bientôt disponible » page).
+- `lib/auth/` contains the authentication repository (email, code, password
+  reset, OAuth, public Auth settings), Supabase error classification by code
+  and the social providers.
+- `lib/data/` contains the profile model, the validated questionnaire rules
+  (`profile_rules.dart`), the draft model and its local store, and the
+  Supabase profile repository (the user always comes from the session).
+- `lib/coach/` contains the coach repository (calls the `coach-chat` Edge
+  Function with the user's session; never Polomix directly) and its error
+  classification.
+- `lib/features/auth/`, `lib/features/onboarding/`, `lib/features/home/`,
+  `lib/features/coach/` and `lib/features/stats/` contain the screens. Flow
+  logic lives in `EmailAuthController`, `QuestionnaireController` and
+  `CoachController`; question widgets are in `features/onboarding/widgets/`.
+- `lib/theme/evolup_theme.dart` defines the single EVOLUP dark identity used
+  everywhere (colour themes are postponed to V1.1.0).
+- `supabase/migrations/` contains the versioned profile schema, grants and
+  row-level security policies.
+- `supabase/functions/coach-chat/` is the Edge Function between the app and
+  Polomix (protocol, security and future structured tasks in its
+  `README.md`).
 
 ## Supabase setup
 
-The Flutter client requires these **public client configuration** values at
-build/run time:
+The EVOLUP project's **public** client values (project URL and publishable
+key) are the defaults in
+[`lib/config/supabase_config.dart`](lib/config/supabase_config.dart), so
+`flutter run`, VS Code ▶️ and `flutter build` need no arguments. Optional
+compile-time overrides, for example to target another project:
 
-- `SUPABASE_URL`
-- `SUPABASE_PUBLISHABLE_KEY` (the project's publishable client key)
-- `SUPABASE_AUTH_REDIRECT_URL` (optional; set to a registered redirect URL to
-  return password-recovery links to your app)
+- `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`, e.g.
+  `--dart-define-from-file=config/supabase.local.json` (git-ignored; template
+  [`config/supabase.example.json`](config/supabase.example.json)).
+- `SUPABASE_AUTH_REDIRECT_URL`. By default the app uses the current page
+  origin on the web and `evolup://auth-callback` on Android/iOS for OAuth
+  returns and password-reset links.
 
-Pass them using Flutter's compile-time defines; for example, in PowerShell:
+- **VS Code**: Run and Debug (▶️) → « EVOLUP · Chrome » (port 5000, so the
+  origin is `http://localhost:5000`) or « EVOLUP · appareil sélectionné
+  (Android) ».
+- **Command line**: `flutter run -d chrome --web-port=5000`;
+  releases: `flutter build web --release`, `flutter build apk --release`.
 
-```powershell
-flutter run `
-  --dart-define=SUPABASE_URL=$env:SUPABASE_URL `
-  --dart-define=SUPABASE_PUBLISHABLE_KEY=$env:SUPABASE_PUBLISHABLE_KEY
-```
+Never use a `service_role` key, secret API key, OAuth client secret, or
+Polomix credential in the Flutter app. The publishable key is public by
+design; database authorization relies on RLS, not on hiding that key.
 
-For Android password recovery, the app declares the custom callback
-`evolup://auth-callback`. Add
-`--dart-define=SUPABASE_AUTH_REDIRECT_URL=evolup://auth-callback` and that exact
-URL to the Supabase Auth redirect allow list. For web, use the deployed
-HTTPS origin as the redirect value and allow-list entry instead.
+### Required Dashboard steps (email)
 
-Never use a `service_role` key, secret API key, or Polomix credential in the
-Flutter app. The publishable key is public by design; database authorization
-must rely on RLS, not on hiding that key.
-
-### Required Dashboard steps
-
-1. In Supabase Dashboard, open **Project Settings → API Keys** and provide the
-   project URL and publishable key through your local environment/build
-   pipeline. Do not commit either value.
+1. In **Project Settings → API Keys**, keep the `default` publishable key
+   enabled (the app embeds it); if it is rotated, update
+   `lib/config/supabase_config.dart`.
 2. In **Authentication → Providers → Email**: keep Email enabled and
    **Confirm email** on (verified enabled on 2026-10-23), and set
    **Minimum password length** to 8 so Supabase enforces the same rule as the
@@ -70,36 +79,80 @@ must rely on RLS, not on hiding that key.
    `<p>Votre code EVOLUP : <strong>{{ .Token }}</strong></p>`). Without it,
    Supabase sends a link instead of a code and the app's code step cannot be
    completed.
-4. In **Authentication → URL Configuration**, allow-list the password-recovery
-   redirect URLs: `evolup://auth-callback` (Android) and the web origin used
-   for testing (for example `http://localhost:5000`). The app handles
-   Supabase's password-recovery event and lets the recovery session set a new
-   password. The Flutter client uses the PKCE flow, so a reset link must be
-   opened on the same device and browser that requested it.
+4. In **Authentication → URL Configuration**, allow-list the redirect URLs:
+   `evolup://auth-callback` (Android/iOS) and every web origin used (for
+   example `http://localhost:5000`). The Flutter client uses the PKCE flow, so
+   a reset link must be opened on the same device and browser that requested
+   it.
 5. Supabase's built-in email service has a low hourly limit and is
    best-effort. Before real users sign up, configure **Authentication → SMTP**
    with an email provider, a domain you own and its SPF/DKIM DNS records.
-6. Apply
-   [`20261021000000_create_athlete_profiles.sql`](supabase/migrations/20261021000000_create_athlete_profiles.sql)
-   through the Supabase CLI (`supabase db push`, after initializing and linking
-   the local Supabase project) or the Dashboard SQL Editor.
-   The migration creates `public.athlete_profiles`, enables RLS, revokes
-   unauthenticated access and grants signed-in users only select/insert/update
-   access to their own row.
-   It is **not applied** on the connected project yet; until it is, a
-   successful sign-in ends on the "Impossible de charger votre profil" screen.
-7. Verify the migration and auth settings before using real accounts. Check
-   through authenticated client requests (the SQL Editor uses an elevated role
-   and is not an RLS test): two test users should each read and update only
-   their own row; an insert/update that claims the other user's `user_id` must
-   be rejected; unauthenticated access and deletion must be denied.
+
+### Profile table
+
+[`20261021000000_create_athlete_profiles.sql`](supabase/migrations/20261021000000_create_athlete_profiles.sql)
+creates `public.athlete_profiles` (one row per user, written when the
+questionnaire is finished), its value checks, an `updated_at` trigger, and RLS:
+signed-in users can only read, create and update their own row; no anonymous
+access; no deletion from the app; `service_role` gets no privileges on it.
+
+It was **applied** on 2026-10-24 with the Supabase CLI (`npx supabase db push
+--linked`, version `20261021000000` in the remote migration history). Apply
+future migrations the same way: add a file to `supabase/migrations/`, then
+`npx supabase db push --linked --dry-run` before `npx supabase db push
+--linked`. Never run `supabase config push`: `supabase/config.toml` holds the
+CLI's local-development defaults (6-character passwords, no email
+confirmation), not the project's settings.
+
+The dashboard (Table Editor) runs as the table owner, so rows can be read and
+edited there; the check constraints still apply. It is not an RLS test: RLS
+was verified with simulated `anon`/`authenticated`/`service_role` requests in
+rolled-back transactions and with the REST API without a session (HTTP 401).
+
+### Google and Apple (OAuth)
+
+The app reads `GET /auth/v1/settings` and only enables a provider button when
+the provider is **enabled in Supabase** and the platform can receive the
+OAuth return (web, Android, iOS). Nothing else needs to change in the code.
+
+- **Google**: in Google Cloud, create an OAuth consent screen and an OAuth
+  client of type *Web application* with the authorized redirect URI
+  `https://zhvhbtqpxorhrxfgeaen.supabase.co/auth/v1/callback`. Enter its
+  client ID and secret in **Supabase → Authentication → Providers → Google**
+  (never in the app).
+- **Apple**: requires a paid Apple Developer account: an App ID with Sign in
+  with Apple, a Services ID whose return URL is the same Supabase callback,
+  and a signing key used to generate the client secret (valid at most six
+  months). Enter them in **Supabase → Authentication → Providers → Apple**.
+  Building and testing on iOS also requires a Mac with Xcode.
+- Both: allow-list the redirect URLs listed in step 4 above.
+
+### Coach IA (Polomix)
+
+The app sends chat messages to the `coach-chat` Edge Function with the
+user's session; the function checks the session, calls Polomix with the
+`POLOMIX_API_KEY` secret and returns the reply. The key never reaches the app,
+Git or the logs. It is **not deployed yet**. Owner steps, in order:
+
+1. Create a key in Polomix (API dashboard; it is shown once) and keep it in a
+   password manager, never in a file of this repository.
+2. Store it as a project secret named `POLOMIX_API_KEY` in **Dashboard →
+   Edge Functions → Secrets** (preferred: a key typed in a terminal command,
+   e.g. `npx supabase secrets set POLOMIX_API_KEY=…`, stays in the shell
+   history). For the published web app, also add `COACH_ALLOWED_ORIGINS` with
+   its origin (default when unset: `http://localhost:5000`).
+3. Deploy after review: `npx supabase functions deploy coach-chat`
+   (`verify_jwt = false` is set for it in `supabase/config.toml`: the session
+   is verified inside the function).
+4. Test from the app, signed in, with a neutral message such as « Bonjour ».
 
 ### Local-only checks without Supabase
 
-The app starts in a clearly marked unconfigured state if the two compile-time
-values are absent. The forms remain visible, but authentication is not
-simulated and cannot succeed. Widget tests use in-memory test repositories;
-they never contact a production project or change remote data.
+The app only starts in its marked unconfigured state if a build overrides the
+URL or key with an empty value (`--dart-define=SUPABASE_URL=`). The forms
+remain visible, but authentication is not simulated and cannot succeed. Tests
+use in-memory repositories; they never contact a Supabase project or change
+remote data.
 
 ## Implemented behavior
 
@@ -111,26 +164,37 @@ they never contact a production project or change remote data.
   Supabase verifies (`verifyOTP`) before opening a session. A failed sign-in
   never creates an account. Messages never reveal whether an address has an
   account. Code resend is limited to once per minute.
-- « Mot de passe oublié ? » sends Supabase's password-reset link; session
-  restoration and sign-out.
-- Google and Apple buttons are visible but labelled « Non configuré »; they
-  never start a sign-in until a provider is configured and tested.
-- Gold, Black & White, Blue, and Violet palettes with light and dark themes
-  after sign-in (the sign-in screen keeps its own dark identity). Dark Gold is
-  the default. Local preferences are restored on startup and signed-in
-  profile preferences are loaded from Supabase and synchronized.
-- A three-step profile questionnaire with validated required fields, optional
-  height/weight and wearable preference, saved drafts, resume, and editing.
-- A post-onboarding screen with profile editing and theme settings.
-- An explicit unavailable state for the AI coach; no fictional analysis or
-  training program is generated.
+- « Mot de passe oublié ? » sends Supabase's password-reset link.
+- Google and Apple start a real OAuth sign-in when enabled in Supabase;
+  otherwise they say « Non configuré » and start nothing. Cancelled or refused
+  OAuth returns are shown on the sign-in screen.
+- After sign-in, the profile is loaded: no profile → initial questionnaire,
+  profile → home. A session alone is never treated as a completed profile.
+- Questionnaire: one question per screen, « Continuer » fixed at the bottom,
+  progress, back without losing answers, equipment only for home training,
+  exactly as many training days as weekly sessions (2 to 7), draft kept on
+  the device, single save to Supabase at the end, confirmation, then home.
+  The profile can be edited from home.
+- A floating translucent navigation bar (same glass as the sign-in card):
+  Coach IA · Home (centered) · Statistiques. Home is the default; the other
+  pages are built on first visit and kept alive; the system back action
+  returns to Home; the bar clears the system bars and hides while the
+  keyboard is open.
+- Coach IA chat: empty state, user and coach bubbles, a loading state, one
+  message at a time, clear errors with retry, Enter to send with a hardware
+  keyboard (Shift+Enter for a new line) and the send key on Android/iOS,
+  latest message kept in view, field kept above the keyboard. Only replies
+  really received from Polomix are shown; nothing is invented on failure. The
+  conversation is temporary (not saved) and each message is answered on its
+  own (no history sent). No profile data is sent to Polomix.
+- An explicit unavailable state for statistics; no fictional data.
 
 ## Not implemented yet
 
-Workout tracking, exercise catalog, performance records, statistics, quests,
-levels, social features, 3D models, paid plans, and the AI coach/server
-integration remain future work. Selecting a wearable only records a preference;
-it does not connect or synchronize device data.
+Colour themes (V1.1.0), workout tracking, exercise catalog, performance
+records, statistics, quests, levels, social features, 3D models, coach
+history, coach access to the sports profile, and structured AI tasks (scores,
+programme proposals) remain future work.
 
 ## Verification
 
@@ -142,14 +206,21 @@ flutter analyze
 flutter test
 ```
 
-Tests cover the sign-in flow (including that no failed sign-in triggers a
-sign-up), error classification, validation, navigation, profile-completion
-routing, and local theme persistence using fakes.
+Tests cover the sign-in flow (no failed sign-in triggers a sign-up), OAuth
+availability and failures, the questionnaire rules and navigation, save
+errors and double submission, local drafts, session/profile routing, the
+navigation bar, the coach chat (states, errors, retry, keyboard), and the
+consistency between `profile_rules.dart` and the migration.
 
-Verified against the real project (2026-10-23): a sign-in with an unknown
-address returns `invalid_credentials` and the web app shows « Adresse e-mail
-ou mot de passe incorrect. »; no account was created. Not yet verified for
-real: email code delivery and verification (needs the dashboard steps above
-and a test address from the owner), password-reset links, session restoration
-after sign-up, and the profile table and its policies (migration not
-applied).
+The Edge Function has its own tests (fake Polomix and session, no key, no
+network), run from `supabase/functions/coach-chat/` with Deno, e.g.
+`npx -y deno@2.9.6 test --no-prompt handler_test.ts polomix_test.ts`.
+
+Verified against the real project (2026-10-23, read-only, no account
+created): an unknown address returns `invalid_credentials` and the web app
+shows « Adresse e-mail ou mot de passe incorrect. ». After the migration
+(2026-10-24): the profile endpoint without a session answers HTTP 401
+(`42501`), and simulated requests confirm that a signed-in user only sees and
+writes their own row. Not yet verified for real: email code delivery and
+verification, password-reset links, OAuth providers, a full save with a real
+account, and Android/iOS devices.

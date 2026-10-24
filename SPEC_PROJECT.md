@@ -42,9 +42,9 @@ maintenable. Les fonctionnalités suivantes sont **conservées dans la V1** :
 | Fonctionnalité | Statut de la spécification |
 | --- | --- |
 | Inscription, connexion | E-mail spécifié et implémenté (section 1) ; Google/Apple [Ouvert] |
-| Gestion du profil | [Ouvert] — nommée seulement |
-| Questionnaire sportif et personnalisation des objectifs | [Ouvert] — nommée seulement |
-| Choix des préférences visuelles | [Ouvert] — nommée seulement |
+| Gestion du profil | Profil du questionnaire consultable et modifiable (section 2) ; le reste [Ouvert] |
+| Questionnaire sportif et personnalisation des objectifs | Spécifié et implémenté (section 2) |
+| Choix des préférences visuelles | Reporté en V1.1.0 |
 | Programme sportif personnalisé et sa validation | [Ouvert] — nommée seulement |
 | Coach IA | Règles générales en 0.6 ; détail [Ouvert] |
 | Suivi des séances, enregistrement des performances | [Ouvert] — nommée seulement |
@@ -147,7 +147,8 @@ conversation. L'écran suit uniquement les descriptions du guide (décision 10).
 - Le fond ne doit pas devenir trop coloré ni détourner l'attention de la connexion.
 - [Validé] L'écran de connexion garde toujours ce fond, quelle que soit la
   palette choisie par l'utilisateur ; aucun sélecteur de thème sur cet écran
-  (décision 7).
+  (décision 7). Depuis le report des thèmes en V1.1.0, cette DA s'applique à
+  toute l'application.
 
 ### 1.3 Logo — [Validé]
 
@@ -209,10 +210,15 @@ e-mail, puis écran « Nouveau mot de passe ». Le client Flutter utilise le mod
 PKCE : le lien doit être ouvert sur le même appareil et le même navigateur que
 la demande.
 
-**Google et Apple** (décision 8) : boutons visibles, mention « Non
-configuré », un appui explique l'indisponibilité et ne lance aucune connexion.
-Activation seulement après configuration et test réels, plateforme par
-plateforme (`lib/config/social_auth_config.dart`).
+**Google et Apple** (décision 8) : boutons toujours visibles. Un bouton ne
+lance une connexion OAuth réelle que si le fournisseur est **activé dans
+Supabase** (réglages publics lus par l'application) et si la plateforme reçoit
+le retour (Web, Android, iOS). Sinon il affiche « Non configuré »,
+« Indisponible » (réglages illisibles) ou « Non disponible ici », et un appui
+explique pourquoi sans rien lancer. Annulation ou refus dans la fenêtre du
+fournisseur : message sur l'écran de connexion, jamais de faux succès.
+[Ouvert] Test réel de chaque fournisseur, plateforme par plateforme, après
+configuration par le propriétaire.
 
 ### 1.7 Contraintes — [Validé]
 
@@ -238,56 +244,125 @@ plateforme (`lib/config/social_auth_config.dart`).
 
 ---
 
-## 2. Questions ouvertes (à poser au propriétaire)
+## 2. Questionnaire initial — [Validé] 2026-10-23
+
+### 2.1 Parcours
+
+1. Création de compte (ou connexion) → l'application vérifie la session.
+2. Elle charge le profil de l'utilisateur (`public.athlete_profiles`). Une
+   session seule ne signifie **pas** un profil complété.
+3. Pas de profil → questionnaire. Profil existant → accueil (pas de nouveau
+   questionnaire à la connexion suivante).
+4. Réponses conservées pendant le parcours (retour arrière sans perte) et sur
+   l'appareil, pour reprendre après fermeture de l'application.
+5. Enregistrement dans Supabase **uniquement à la validation finale**, pour
+   l'utilisateur de la session ; confirmation « Profil enregistré », puis
+   bouton « Accéder à EVOLUP » vers l'accueil.
+6. Le profil peut être modifié depuis l'accueil (« Modifier mon profil »).
+
+### 2.2 Interface
+
+- Une question par écran, avec explication courte si utile ; « Étape x sur n »
+  (n s'adapte : 9 ou 10 selon l'étape matériel) et barre de progression animée.
+- Bouton « Continuer » fixé en bas, au-dessus du clavier ; il refuse une
+  réponse obligatoire invalide (message sous la question). Dernière étape :
+  « Créer mon profil » (ou « Enregistrer » en modification).
+- Retour à l'étape précédente sans perte de réponses.
+- Animations discrètes : fondu + léger déplacement horizontal entre les
+  questions, léger enfoncement du bouton, progression animée, chargement pendant
+  l'enregistrement ; désactivées si l'appareil demande moins d'animations.
+- Même DA que l'écran de connexion (fond, halos, dot grid, carte en verre).
+
+### 2.3 Questions (dans l'ordre)
+
+| # | Question | Règle |
+| --- | --- | --- |
+| 1 | Âge | Obligatoire, 15 à 120 ans |
+| 2 | Taille | Obligatoire, 80 à 250 cm (une décimale) |
+| 3 | Poids | Obligatoire, 25 à 350 kg (une décimale) |
+| 4 | Séances par semaine | Obligatoire, **curseur vertical** de 2 à 7 |
+| 5 | Jours d'entraînement | **Petits cercles** (Lu … Di) ; exactement autant de jours que de séances (donc au moins 2). Jours choisis = séances et quêtes ; autres jours = repos (aucune séance fictive créée) |
+| 6 | Niveau | Obligatoire : Débutant, Intermédiaire, Avancé |
+| 7 | Objectif principal | Obligatoire, un seul choix parmi les 6 objectifs ; précision facultative (200 caractères max) |
+| 8 | Lieux d'entraînement | Obligatoire, un ou plusieurs : À domicile, Salle de sport, Street workout |
+| 9 | Matériel à domicile | **Seulement si « À domicile »** ; au moins un choix, « Aucun matériel » exclut les autres ; effacé si « À domicile » est retiré |
+| 10 | Durée d'une séance | Obligatoire : 30, 45, 60, 75 ou 90 minutes |
+
+**Non demandé** : sports pratiqués, objectifs secondaires, contraintes ou
+limitations physiques (pas de données de santé en V1), montre ou source de
+données, couleurs et thèmes (reportés en V1.1.0).
+
+### 2.4 Données
+
+Table `public.athlete_profiles`, une ligne par utilisateur créée à la fin du
+questionnaire. Les règles ci-dessus sont appliquées à la fois par
+l'application (`lib/data/profile_rules.dart`) et par la base (contraintes de la
+migration) ; un test vérifie qu'elles restent identiques. RLS : chaque
+utilisateur connecté lit, crée et modifie uniquement sa propre ligne ; aucun
+accès anonyme ; pas de suppression depuis l'application.
+
+---
+
+## 3. Questions ouvertes (à poser au propriétaire)
 
 1. Transmettre le second cahier des charges et le « cahier des charges
    initial » s'ils existent.
 2. « Polomix » : de quel service s'agit-il (fournisseur du coach IA ? autre) ?
-3. Le questionnaire de profil déjà codé (voir section 3) est-il validé, à
-   modifier ou à redéfinir ? Il collecte des données potentiellement
-   sensibles (limitations physiques, taille, poids).
-4. Table distante `public.Profiles` : créée volontairement ? Peut-elle être
+3. Table distante `public.Profiles` : créée volontairement ? Peut-elle être
    supprimée ?
-5. Comptes Apple Developer et Google Cloud, accès à un Mac, identifiant
+4. Comptes Apple Developer et Google Cloud, accès à un Mac, identifiant
    d'application définitif (remplaçant `com.example.my_training`).
-6. Replit est-il encore utilisé ? (il fixe le plancher Flutter 3.32 / Dart 3.8)
+5. Replit est-il encore utilisé ? (il fixe le plancher Flutter 3.32 / Dart 3.8)
 
 ---
 
-## 3. État constaté du projet — [Constat] 2026-10-23
+## 4. État constaté du projet — [Constat] 2026-10-23
 
-### Implémenté et vérifié
+### Implémenté et vérifié localement (tests automatisés, sans Supabase)
 
-- Écran de connexion conforme à la section 1 : fond, halos, dot grid, logo,
-  « Login », carte en verre, parcours connexion / création / code /
-  récupération, boutons sociaux indisponibles, animations discrètes.
-- Erreurs classées par code Supabase (`lib/auth/auth_error.dart`).
-- Tests locaux (fakes, sans Supabase) : 33 tests, dont la garantie qu'aucun
-  échec de connexion ne déclenche d'inscription.
-- Test réel contre Supabase (Chrome, sans création de compte) : une connexion
-  avec une adresse inexistante affiche « Adresse e-mail ou mot de passe
-  incorrect. » ; `auth.users` reste à 0.
+- Écran de connexion conforme à la section 1 et parcours connexion / création
+  / code / récupération.
+- Google et Apple : lancement OAuth réel (`signInWithOAuth`), retour par la
+  page Web ou le lien `evolup://auth-callback`, erreurs et annulations
+  affichées sur l'écran de connexion. Chaque bouton n'est actif que si le
+  fournisseur est activé dans Supabase (réglages publics lus au démarrage) et
+  si la plateforme reçoit le retour OAuth (Web, Android, iOS).
+- Questionnaire de la section 2, enregistrement final, confirmation, accueil
+  et modification du profil ; brouillon local ; erreurs d'enregistrement.
+- DA EVOLUP sur toute l'application ; sélecteur de palettes supprimé
+  (V1.1.0).
+- 55 tests automatisés réussis ; `flutter analyze` sans problème.
 
-### Antérieur au guide, conservé
+### Vérifié contre le projet Supabase réel (lecture seule, aucun compte créé)
 
-- 4 palettes × clair/sombre après connexion ; questionnaire de profil en
-  3 étapes ; écran d'accueil ; coach IA affiché comme indisponible.
-- Pas de dossier `ios/` ni `macos/` ; dossiers `android/`, `web/`, `windows/`.
+- Connexion avec une adresse inexistante : `invalid_credentials`, message
+  correct (test du 2026-10-23).
+- Table de profil (2026-10-24, après migration) : sans session, l'API répond
+  HTTP 401 (`42501`) ; requêtes simulées (transactions annulées, aucun
+  compte) : un utilisateur connecté ne lit et n'écrit que sa propre ligne ;
+  `anon` et `service_role` n'ont aucun accès ; contraintes actives (jour en
+  double, âge 14, matériel sans domicile refusés).
+- Réglages publics : e-mail activé, confirmation obligatoire, Google et Apple
+  désactivés.
+
+### Non testé
+
+- Inscription réelle avec code (adresse de test et réglage du modèle
+  d'e-mail nécessaires), lien de récupération, OAuth réel (fournisseurs non
+  configurés), Android (aucun appareil ni émulateur), iOS (pas de dossier
+  `ios/`, pas de Mac).
 
 ### Supabase
 
 - Projet « EVOLUP [App] », ref `zhvhbtqpxorhrxfgeaen`, région eu-west-1.
-- Réglages publics vérifiés (`/auth/v1/settings`) : e-mail activé,
-  inscriptions autorisées, confirmation de l'e-mail obligatoire
-  (`mailer_autoconfirm: false`), Google et Apple désactivés.
 - Non vérifiables avec les accès disponibles (le connecteur ne gère pas la
   configuration Auth, aucune CLI ni jeton) : modèle d'e-mail, longueur
   minimale du mot de passe, URL de redirection, SMTP. Réglages à faire par le
   propriétaire dans le tableau de bord (voir README).
-- Schéma `public` : une seule table `public.Profiles` (0 ligne, RLS sans
-  politique), aucune migration enregistrée. La migration `athlete_profiles` du
-  dépôt **n'est pas appliquée** (en attente d'accord) : après connexion,
-  l'écran « Impossible de charger votre profil » s'affiche.
+- Schéma `public` : `public.athlete_profiles` (migration `20261021000000`
+  **appliquée le 2026-10-24** avec le CLI Supabase) et `public.Profiles`
+  (non versionnée, 0 ligne, RLS sans politique, inutilisée par l'app,
+  inchangée).
 - `public.rls_auto_enable()` : fonction du déclencheur d'événements
   `ensure_rls` (active RLS sur toute nouvelle table de `public`). Exécutable
   par `anon`/`authenticated` (alerte Supabase), risque faible. Correction
@@ -296,11 +371,11 @@ plateforme (`lib/config/social_auth_config.dart`).
 
 ---
 
-## 4. Risques et dépendances identifiés
+## 5. Risques et dépendances identifiés
 
 - Inscription de bout en bout non encore validée : dépend des réglages du
-  tableau de bord (modèle d'e-mail avec `{{ .Token }}`) et d'une adresse de
-  test du propriétaire.
+  tableau de bord (modèle d'e-mail avec `{{ .Token }}`), de la migration et
+  d'une adresse de test.
 - Service d'e-mail intégré de Supabase : limite horaire faible, envoi « au
   mieux » ; un SMTP personnalisé (fournisseur + domaine + DNS) est nécessaire
   avant d'ouvrir l'application à d'autres utilisateurs.
@@ -309,16 +384,18 @@ plateforme (`lib/config/social_auth_config.dart`).
   identifiants OAuth.
 - Effet « liquid glass » (`BackdropFilter`) : à vérifier sur un Android
   d'entrée de gamme (aucun appareil Android disponible sur le poste).
+- La base ne vérifie pas l'absence de doublons dans les listes (jours, lieux,
+  matériel) ; l'application n'en envoie jamais.
 - Coach IA / Polomix : fournisseur non identifié ; ne doit pas bloquer la V1.
 - Chaîne de dépendances probable (à confirmer quand les fonctionnalités seront
   spécifiées) : Auth → Profil / questionnaire → Programme (catalogue
   d'exercices et variantes) → Séances / performances → Records, historiques,
-  statistiques → Score, EXP, quêtes, niveaux. Les indicateurs de récupération
-  dépendent des données réellement disponibles.
+  statistiques → Score, EXP, quêtes, niveaux. Les jours d'entraînement du
+  profil serviront aux quêtes et aux séances.
 
 ---
 
-## 5. Journal des décisions
+## 6. Journal des décisions
 
 | Date | Décision | Source |
 | --- | --- | --- |
@@ -332,10 +409,21 @@ plateforme (`lib/config/social_auth_config.dart`).
 | 2026-10-23 | 5 — Récupération : mécanisme existant par lien e-mail conservé. | Propriétaire |
 | 2026-10-23 | 6 / A — Logo aligné à gauche au-dessus de « Login », dégradé bleu-violet → cyan. | Propriétaire |
 | 2026-10-23 | 7 — Écran de connexion toujours bleu nuit avec dot grid ; pas de sélecteur de thème. | Propriétaire |
-| 2026-10-23 | 8 — Google et Apple visibles mais indiqués « Non configuré » ; aucune simulation. | Propriétaire |
+| 2026-10-23 | 8 — Google et Apple visibles mais indiqués indisponibles tant qu'ils ne sont pas configurés ; aucune simulation. | Propriétaire |
 | 2026-10-23 | 9 — Migration `athlete_profiles` : SQL présenté, application seulement après accord explicite. | Propriétaire |
 | 2026-10-23 | 10 — Pas de référence visuelle : suivre les descriptions du guide. | Propriétaire |
 | 2026-10-23 | B — Lien « Créer un compte » toujours visible sous « Continuer ». | Propriétaire |
 | 2026-10-23 | C — Animations discrètes, respectant la réduction des animations. | Propriétaire |
 | 2026-10-23 | Un échec de connexion ne déclenche jamais d'inscription ; vérification de l'inscription par un vrai code Supabase. | Propriétaire |
 | 2026-10-23 | Autorisation : configuration Auth e-mail dans Supabase uniquement ; schéma, données, fonctions, RLS, utilisateurs de test, Google/Apple et identifiant Android exigent un accord explicite. | Propriétaire |
+| 2026-10-23 | Questionnaire : âge, taille, poids obligatoires ; pas de sports pratiqués ni d'objectifs secondaires ; matériel seulement à domicile ; au moins 2 jours. | Propriétaire |
+| 2026-10-23 | Séances par semaine sur un curseur vertical (2 à 7), puis exactement autant de jours dans des petits cercles. | Propriétaire |
+| 2026-10-23 | Contraintes / limitations physiques non demandées en V1. | Propriétaire |
+| 2026-10-23 | Âge minimum : 15 ans. | Propriétaire |
+| 2026-10-23 | Couleurs et thèmes reportés en V1.1.0 : DA EVOLUP sur toute l'application, sélecteur de palettes retiré, aucune colonne de thème. | Propriétaire |
+| 2026-10-23 | Préparer OAuth Google et Apple (code et Supabase) dans la limite des accès disponibles ; l'e-mail doit fonctionner indépendamment. | Propriétaire |
+| 2026-10-23 | Schéma : autorisation de créer/modifier tables, colonnes, relations, index et RLS, avec plan et accord avant chaque migration ; aucune suppression sans accord. | Propriétaire |
+| 2026-10-24 | Migration `athlete_profiles` (contrainte anti-doublon des jours, aucun droit pour `service_role`) appliquée avec `npx supabase db push --linked`. | Propriétaire |
+| 2026-10-25 | Intégration Polomix et fonctionnalités du coach IA mises en attente. | Propriétaire |
+| 2026-10-25 | Barre de navigation flottante et translucide (verre de la carte de connexion), en bas : Coach IA (bulle avec « … ») · Home (maison, au centre) · Statistiques (trois barres, celle du milieu la plus haute). Coach IA et Statistiques : pages « Bientôt disponible », sans faux chat, appel d'API ni donnée. | Propriétaire |
+| 2026-10-25 | Coach IA v1 : vrai chat dans l'onglet Coach IA, réponses de Polomix uniquement, via la fonction serveur Supabase `coach-chat` (clé `POLOMIX_API_KEY` côté serveur seulement) ; conversation temporaire non enregistrée ; aucune donnée personnelle ou sportive envoyée ; pas d'historique ni de table. Architecture prévue pour de futures tâches structurées validées par le serveur (contrat dans `supabase/functions/coach-chat/README.md`). | Propriétaire |

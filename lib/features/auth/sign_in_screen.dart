@@ -1,17 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../app/evolup_logo.dart';
+import '../../app/widgets/button_spinner.dart';
+import '../../app/widgets/evolup_background.dart';
+import '../../app/widgets/glass_card.dart';
+import '../../app/widgets/status_message.dart';
 import '../../auth/auth_error.dart';
 import '../../auth/auth_repository.dart';
-import '../../config/social_auth_config.dart';
-import '../../theme/auth_theme.dart';
+import '../../auth/social_auth_provider.dart';
+import '../../theme/evolup_theme.dart';
 import 'auth_messages.dart';
 import 'email_auth_controller.dart';
 import 'email_code_step.dart';
-import 'widgets/auth_background.dart';
-import 'widgets/auth_message.dart';
-import 'widgets/button_spinner.dart';
-import 'widgets/glass_card.dart';
 import 'widgets/social_auth_buttons.dart';
 
 /// First-launch authentication screen (build guide §1).
@@ -22,18 +24,48 @@ class SignInScreen extends StatefulWidget {
   const SignInScreen({
     required this.authRepository,
     this.configurationMessage,
+    this.initialFailure,
+    this.socialPlatformSupported,
     super.key,
   });
 
   final AuthRepository? authRepository;
   final String? configurationMessage;
 
+  /// Failure reported while the screen was not shown (OAuth return).
+  final AuthFailure? initialFailure;
+
+  /// Overrides the platform check (tests).
+  final bool? socialPlatformSupported;
+
   @override
   State<SignInScreen> createState() => _SignInScreenState();
 }
 
 class _SignInScreenState extends State<SignInScreen> {
-  late final _controller = EmailAuthController(widget.authRepository);
+  late final _controller = EmailAuthController(
+    widget.authRepository,
+    socialPlatformSupported:
+        widget.socialPlatformSupported ?? socialAuthSupportedOnThisPlatform,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialFailure case final failure?) {
+      _controller.showFailure(failure);
+    }
+    unawaited(_controller.loadSocialProviders());
+  }
+
+  @override
+  void didUpdateWidget(SignInScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final failure = widget.initialFailure;
+    if (failure != null && failure != oldWidget.initialFailure) {
+      _controller.showFailure(failure);
+    }
+  }
 
   @override
   void dispose() {
@@ -48,9 +80,9 @@ class _SignInScreenState extends State<SignInScreen> {
         ? Duration.zero
         : const Duration(milliseconds: 260);
     return Theme(
-      data: buildAuthTheme(),
+      data: buildEvolupBrandTheme(),
       child: Builder(
-        builder: (context) => AuthBackground(
+        builder: (context) => EvolupBackground(
           child: Scaffold(
             backgroundColor: Colors.transparent,
             body: SafeArea(
@@ -213,8 +245,14 @@ class _CredentialsStepState extends State<_CredentialsStep> {
     }
   }
 
-  void _showUnavailable(SocialAuthProvider provider) {
-    widget.controller.clearMessages();
+  void _onSocialPressed(SocialAuthProvider provider) {
+    final controller = widget.controller;
+    if (controller.availabilityOf(provider) == SocialAvailability.available) {
+      setState(() => _unavailableProvider = null);
+      unawaited(controller.signInWithProvider(provider));
+      return;
+    }
+    controller.clearMessages();
     setState(() => _unavailableProvider = provider);
   }
 
@@ -243,19 +281,19 @@ class _CredentialsStepState extends State<_CredentialsStep> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (configurationMessage != null) ...[
-            AuthMessage(
+            StatusMessage(
               message: configurationMessage,
-              kind: AuthMessageKind.error,
+              kind: StatusMessageKind.error,
             ),
             const SizedBox(height: 16),
           ],
           if (failure != null &&
               !(failure == AuthFailure.notConfigured &&
                   configurationMessage != null)) ...[
-            AuthMessage(
+            StatusMessage(
               key: const Key('auth-failure'),
               message: authFailureMessage(failure),
-              kind: AuthMessageKind.error,
+              kind: StatusMessageKind.error,
             ),
             if (failure == AuthFailure.emailNotConfirmed)
               Align(
@@ -264,22 +302,23 @@ class _CredentialsStepState extends State<_CredentialsStep> {
                   key: const Key('auth-request-code'),
                   onPressed: busy == null ? controller.requestCode : null,
                   child: busy == EmailAuthAction.requestCode
-                      ? const ButtonSpinner(color: AuthColors.textPrimary)
+                      ? const ButtonSpinner(color: EvolupColors.textPrimary)
                       : const Text('Recevoir un code'),
                 ),
               ),
             const SizedBox(height: 16),
           ],
           if (notice != null) ...[
-            AuthMessage(message: authNoticeMessage(notice)),
+            StatusMessage(message: authNoticeMessage(notice)),
             const SizedBox(height: 16),
           ],
           if (unavailable != null) ...[
-            AuthMessage(
+            StatusMessage(
               key: const Key('auth-social-unavailable'),
-              message:
-                  'La connexion avec ${unavailable.label} n’est pas encore '
-                  'configurée. Utilisez votre adresse e-mail.',
+              message: socialUnavailableMessage(
+                unavailable,
+                controller.availabilityOf(unavailable),
+              ),
             ),
             const SizedBox(height: 16),
           ],
@@ -337,7 +376,7 @@ class _CredentialsStepState extends State<_CredentialsStep> {
               key: const Key('auth-forgot'),
               onPressed: busy == null ? _resetPassword : null,
               child: busy == EmailAuthAction.resetPassword
-                  ? const ButtonSpinner(color: AuthColors.textPrimary)
+                  ? const ButtonSpinner(color: EvolupColors.textPrimary)
                   : const Text('Mot de passe oublié ?'),
             ),
           ),
@@ -354,13 +393,19 @@ class _CredentialsStepState extends State<_CredentialsStep> {
             key: const Key('auth-create'),
             onPressed: busy == null ? _signUp : null,
             child: busy == EmailAuthAction.signUp
-                ? const ButtonSpinner(color: AuthColors.textPrimary)
+                ? const ButtonSpinner(color: EvolupColors.textPrimary)
                 : const Text('Créer un compte'),
           ),
           const SizedBox(height: 14),
-          const Divider(color: AuthColors.glassBorder, height: 1),
+          const Divider(color: EvolupColors.glassBorder, height: 1),
           const SizedBox(height: 18),
-          SocialAuthButtons(onUnavailable: _showUnavailable),
+          SocialAuthButtons(
+            availabilityOf: controller.availabilityOf,
+            loadingProvider: busy == EmailAuthAction.social
+                ? controller.socialProvider
+                : null,
+            onPressed: _onSocialPressed,
+          ),
         ],
       ),
     );

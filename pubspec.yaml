@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   supabase_flutter: ^2.18.3
   shared_preferences: ^2.5.3
+  # Reads the public Supabase Auth settings (enabled OAuth providers).
+  http: ^1.6.0
 
 dev_dependencies:
   flutter_test:

@@ -1,0 +1,31 @@
+{
+  // Lancement d'EVOLUP avec ▶️ (Exécuter et déboguer) quand ce dossier est
+  // ouvert directement dans VS Code.
+  // La connexion Supabase est intégrée au code (lib/config/supabase_config.dart) :
+  // aucun argument n'est nécessaire. Jamais de clé secrète ni service_role.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "EVOLUP · Chrome",
+      "type": "dart",
+      "request": "launch",
+      "program": "${workspaceFolder}/lib/main.dart",
+      "cwd": "${workspaceFolder}",
+      "deviceId": "chrome",
+      "toolArgs": [
+        // Port fixe : l'origine http://localhost:5000 est celle à autoriser
+        // dans Supabase (Authentication → URL Configuration).
+        "--web-port=5000"
+      ]
+    },
+    {
+      // Utilise l'appareil choisi dans la barre d'état de VS Code
+      // (téléphone Android, émulateur…).
+      "name": "EVOLUP · appareil sélectionné (Android)",
+      "type": "dart",
+      "request": "launch",
+      "program": "${workspaceFolder}/lib/main.dart",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}

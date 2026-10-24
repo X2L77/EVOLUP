@@ -387,6 +387,16 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Coach IA chat (Flutter -> function -> Polomix). The caller's session is
+# verified inside the function with auth.getClaims (JWT signing keys); the
+# platform check is off because it is tied to the legacy JWT secret and would
+# also reject the browser's CORS preflight. Secret: POLOMIX_API_KEY.
+[functions.coach-chat]
+enabled = true
+verify_jwt = false
+import_map = "./functions/coach-chat/deno.json"
+entrypoint = "./functions/coach-chat/index.ts"
+
 [analytics]
 enabled = true
 port = 54327

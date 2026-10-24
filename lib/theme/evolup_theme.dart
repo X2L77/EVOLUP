@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 ///
 /// The sign-in screen always uses this dark night-blue identity, whatever
 /// palette the user picks later in the app.
-abstract final class AuthColors {
+abstract final class EvolupColors {
   static const background = Color(0xFF04060D);
   static const haloBlueViolet = Color(0xFF4C4FE0);
   static const haloCyan = Color(0xFF18B8D4);
@@ -21,20 +21,25 @@ abstract final class AuthColors {
   static const primaryButtonText = Color(0xFF0A0F1F);
   static const error = Color(0xFFFF8A8A);
   static const success = Color(0xFF7FE3C9);
+
+  /// Dark tint under the navigation bar's glass, so its labels stay readable
+  /// over any content scrolling behind it.
+  static const navBarTint = Color(0xB30A0E1C);
+  static const navSelected = Color(0x268EA2FF);
 }
 
-ThemeData buildAuthTheme() {
+ThemeData buildEvolupBrandTheme() {
   final scheme =
       ColorScheme.fromSeed(
-        seedColor: AuthColors.haloBlueViolet,
+        seedColor: EvolupColors.haloBlueViolet,
         brightness: Brightness.dark,
       ).copyWith(
-        primary: AuthColors.focus,
-        onPrimary: AuthColors.primaryButtonText,
-        surface: AuthColors.background,
-        onSurface: AuthColors.textPrimary,
-        onSurfaceVariant: AuthColors.textSecondary,
-        error: AuthColors.error,
+        primary: EvolupColors.focus,
+        onPrimary: EvolupColors.primaryButtonText,
+        surface: EvolupColors.background,
+        onSurface: EvolupColors.textPrimary,
+        onSurfaceVariant: EvolupColors.textSecondary,
+        error: EvolupColors.error,
       );
   OutlineInputBorder border(Color color, [double width = 1]) =>
       OutlineInputBorder(
@@ -45,34 +50,34 @@ ThemeData buildAuthTheme() {
     useMaterial3: true,
     brightness: Brightness.dark,
     colorScheme: scheme,
-    scaffoldBackgroundColor: AuthColors.background,
+    scaffoldBackgroundColor: EvolupColors.background,
     textTheme: Typography.material2021().white.apply(
-      bodyColor: AuthColors.textPrimary,
-      displayColor: AuthColors.textPrimary,
+      bodyColor: EvolupColors.textPrimary,
+      displayColor: EvolupColors.textPrimary,
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: AuthColors.fieldFill,
-      labelStyle: const TextStyle(color: AuthColors.textSecondary),
-      floatingLabelStyle: const TextStyle(color: AuthColors.textPrimary),
-      prefixIconColor: AuthColors.textSecondary,
-      suffixIconColor: AuthColors.textSecondary,
-      border: border(AuthColors.fieldBorder),
-      enabledBorder: border(AuthColors.fieldBorder),
-      focusedBorder: border(AuthColors.focus, 1.5),
-      errorBorder: border(AuthColors.error),
-      focusedErrorBorder: border(AuthColors.error, 1.5),
-      errorStyle: const TextStyle(color: AuthColors.error),
+      fillColor: EvolupColors.fieldFill,
+      labelStyle: const TextStyle(color: EvolupColors.textSecondary),
+      floatingLabelStyle: const TextStyle(color: EvolupColors.textPrimary),
+      prefixIconColor: EvolupColors.textSecondary,
+      suffixIconColor: EvolupColors.textSecondary,
+      border: border(EvolupColors.fieldBorder),
+      enabledBorder: border(EvolupColors.fieldBorder),
+      focusedBorder: border(EvolupColors.focus, 1.5),
+      errorBorder: border(EvolupColors.error),
+      focusedErrorBorder: border(EvolupColors.error, 1.5),
+      errorStyle: const TextStyle(color: EvolupColors.error),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: AuthColors.primaryButton,
-        foregroundColor: AuthColors.primaryButtonText,
-        disabledBackgroundColor: AuthColors.primaryButton.withValues(
+        backgroundColor: EvolupColors.primaryButton,
+        foregroundColor: EvolupColors.primaryButtonText,
+        disabledBackgroundColor: EvolupColors.primaryButton.withValues(
           alpha: 0.55,
         ),
-        disabledForegroundColor: AuthColors.primaryButtonText,
+        disabledForegroundColor: EvolupColors.primaryButtonText,
         minimumSize: const Size.fromHeight(52),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
@@ -80,12 +85,12 @@ ThemeData buildAuthTheme() {
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        foregroundColor: AuthColors.textPrimary,
+        foregroundColor: EvolupColors.textPrimary,
         textStyle: const TextStyle(fontWeight: FontWeight.w600),
       ),
     ),
     progressIndicatorTheme: const ProgressIndicatorThemeData(
-      color: AuthColors.primaryButtonText,
+      color: EvolupColors.primaryButtonText,
     ),
   );
 }

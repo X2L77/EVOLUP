@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 
-import '../../../theme/auth_theme.dart';
+import '../../theme/evolup_theme.dart';
 
 /// Night-blue background with two soft halos and a discreet dot grid
 /// (build guide §1.2). Purely decorative and static.
-class AuthBackground extends StatelessWidget {
-  const AuthBackground({required this.child, super.key});
+class EvolupBackground extends StatelessWidget {
+  const EvolupBackground({required this.child, super.key});
 
   final Widget child;
 
   @override
   Widget build(BuildContext context) => ColoredBox(
-    color: AuthColors.background,
+    color: EvolupColors.background,
     child: Stack(
       fit: StackFit.expand,
       children: [
@@ -22,11 +22,11 @@ class AuthBackground extends StatelessWidget {
               children: [
                 _Halo(
                   alignment: Alignment(-1.1, -0.85),
-                  color: AuthColors.haloBlueViolet,
+                  color: EvolupColors.haloBlueViolet,
                 ),
                 _Halo(
                   alignment: Alignment(1.15, 0.9),
-                  color: AuthColors.haloCyan,
+                  color: EvolupColors.haloCyan,
                 ),
                 CustomPaint(painter: _DotGridPainter()),
               ],
@@ -70,7 +70,7 @@ class _DotGridPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = AuthColors.dot;
+    final paint = Paint()..color = EvolupColors.dot;
     for (var y = _spacing / 2; y < size.height; y += _spacing) {
       for (var x = _spacing / 2; x < size.width; x += _spacing) {
         canvas.drawCircle(Offset(x, y), _radius, paint);

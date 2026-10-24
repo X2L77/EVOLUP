@@ -1,24 +1,24 @@
 import 'package:flutter/material.dart';
 
-import '../../../theme/auth_theme.dart';
+import '../../theme/evolup_theme.dart';
 
-enum AuthMessageKind { error, info }
+enum StatusMessageKind { error, info }
 
-class AuthMessage extends StatelessWidget {
-  const AuthMessage({
+class StatusMessage extends StatelessWidget {
+  const StatusMessage({
     required this.message,
-    this.kind = AuthMessageKind.info,
+    this.kind = StatusMessageKind.info,
     super.key,
   });
 
   final String message;
-  final AuthMessageKind kind;
+  final StatusMessageKind kind;
 
   @override
   Widget build(BuildContext context) {
-    final color = kind == AuthMessageKind.error
-        ? AuthColors.error
-        : AuthColors.success;
+    final color = kind == StatusMessageKind.error
+        ? EvolupColors.error
+        : EvolupColors.success;
     return Semantics(
       liveRegion: true,
       child: Container(
@@ -32,9 +32,9 @@ class AuthMessage extends StatelessWidget {
         child: Text(
           message,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: kind == AuthMessageKind.error
-                ? AuthColors.error
-                : AuthColors.textPrimary,
+            color: kind == StatusMessageKind.error
+                ? EvolupColors.error
+                : EvolupColors.textPrimary,
           ),
         ),
       ),

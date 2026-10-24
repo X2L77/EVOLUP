@@ -25,6 +25,12 @@ enum AuthFailure {
   rateLimited,
   signupDisabled,
   sessionExpired,
+
+  /// The user cancelled or refused an OAuth sign-in.
+  oauthCancelled,
+
+  /// An OAuth sign-in could not be opened or completed.
+  oauthFailed,
   network,
   notConfigured,
   unknown,
@@ -38,6 +44,7 @@ AuthFailure classifyAuthError(Object error) {
   }
   if (error is AuthWeakPasswordException) return AuthFailure.weakPassword;
   if (error is AuthSessionMissingException) return AuthFailure.sessionExpired;
+  if (error is AuthPKCEGrantCodeExchangeError) return AuthFailure.oauthFailed;
   // Raised by the client when the request never got a usable answer
   // (no connection, DNS failure, server unavailable).
   if (error is AuthRetryableFetchException) return AuthFailure.network;
@@ -68,6 +75,19 @@ AuthFailure classifyAuthError(Object error) {
     case 'session_expired':
     case 'refresh_token_not_found':
       return AuthFailure.sessionExpired;
+    // OAuth errors returned in the redirect URL.
+    case 'access_denied':
+      return AuthFailure.oauthCancelled;
+    case 'oauth_launch_failed':
+    case 'bad_oauth_callback':
+    case 'bad_oauth_state':
+    case 'bad_code_verifier':
+    case 'flow_state_expired':
+    case 'flow_state_not_found':
+    case 'provider_disabled':
+    case 'oauth_provider_not_supported':
+    case 'server_error':
+      return AuthFailure.oauthFailed;
   }
   if (error.statusCode == '429') return AuthFailure.rateLimited;
   // Older Auth servers do not send codes for this case.

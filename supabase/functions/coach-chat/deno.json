@@ -1,0 +1,9 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.117.3"
+  },
+  "fmt": {
+    "singleQuote": true,
+    "lineWidth": 80
+  }
+}

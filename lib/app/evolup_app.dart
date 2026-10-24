@@ -2,63 +2,71 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../auth/auth_error.dart';
 import '../auth/auth_repository.dart';
+import '../coach/coach_repository.dart';
 import '../data/athlete_profile.dart';
 import '../data/athlete_profile_repository.dart';
-import '../data/preferences_store.dart';
-import '../features/auth/sign_in_screen.dart';
+import '../data/questionnaire_draft_store.dart';
 import '../features/auth/password_recovery_screen.dart';
+import '../features/auth/sign_in_screen.dart';
+import '../features/coach/coach_screen.dart';
 import '../features/home/home_screen.dart';
-import '../features/onboarding/onboarding_screen.dart';
-import '../theme/app_theme.dart';
+import '../features/onboarding/questionnaire_screen.dart';
+import '../theme/evolup_theme.dart';
+import 'shell/app_shell.dart';
+import 'widgets/evolup_background.dart';
+import 'widgets/glass_card.dart';
 
 class EvolupApp extends StatelessWidget {
   const EvolupApp({
-    required this.themeController,
     required this.authRepository,
     required this.profileRepository,
+    required this.draftStore,
+    this.coachRepository,
     this.initializationError,
     super.key,
   });
 
-  final ThemeController themeController;
   final AuthRepository? authRepository;
   final AthleteProfileRepository? profileRepository;
+  final QuestionnaireDraftStore draftStore;
+  final CoachRepository? coachRepository;
   final String? initializationError;
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: themeController,
-    builder: (context, _) => MaterialApp(
-      title: 'EVOLUP',
-      debugShowCheckedModeBanner: false,
-      theme: buildEvolupTheme(themeController.value.copyWith(isDark: false)),
-      darkTheme: buildEvolupTheme(themeController.value.copyWith(isDark: true)),
-      themeMode: themeController.value.isDark
-          ? ThemeMode.dark
-          : ThemeMode.light,
-      home: AppGate(
-        themeController: themeController,
-        authRepository: authRepository,
-        profileRepository: profileRepository,
-        initializationError: initializationError,
-      ),
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'EVOLUP',
+    debugShowCheckedModeBanner: false,
+    theme: buildEvolupBrandTheme(),
+    home: AppGate(
+      authRepository: authRepository,
+      profileRepository: profileRepository,
+      draftStore: draftStore,
+      coachRepository: coachRepository,
+      initializationError: initializationError,
     ),
   );
 }
 
+/// Chooses the screen: password recovery → sign-in → questionnaire (no
+/// profile yet, or editing) → [AppShell] (home and the other main
+/// destinations). A session alone never means a completed profile: the
+/// profile row is loaded for every signed-in user.
 class AppGate extends StatefulWidget {
   const AppGate({
-    required this.themeController,
     required this.authRepository,
     required this.profileRepository,
+    required this.draftStore,
+    this.coachRepository,
     this.initializationError,
     super.key,
   });
 
-  final ThemeController themeController;
   final AuthRepository? authRepository;
   final AthleteProfileRepository? profileRepository;
+  final QuestionnaireDraftStore draftStore;
+  final CoachRepository? coachRepository;
   final String? initializationError;
 
   @override
@@ -68,12 +76,14 @@ class AppGate extends StatefulWidget {
 class _AppGateState extends State<AppGate> {
   StreamSubscription<String?>? _authSubscription;
   StreamSubscription<void>? _passwordRecoverySubscription;
+  StreamSubscription<AuthFailure>? _authFailureSubscription;
   String? _userId;
   AthleteProfile? _profile;
   Object? _loadError;
   bool _loading = true;
   bool _editingProfile = false;
   bool _passwordRecovery = false;
+  AuthFailure? _authFailure;
 
   @override
   void initState() {
@@ -88,13 +98,16 @@ class _AppGateState extends State<AppGate> {
       onError: (Object error) {
         if (!mounted) return;
         setState(() {
-          _loadError = error;
+          _authFailure = classifyAuthError(error);
           _loading = false;
         });
       },
     );
     _passwordRecoverySubscription = auth.passwordRecoveryEvents.listen((_) {
       if (mounted) setState(() => _passwordRecovery = true);
+    });
+    _authFailureSubscription = auth.authFailures.listen((failure) {
+      if (mounted) setState(() => _authFailure = failure);
     });
     _userId = auth.currentUserId;
     if (_userId == null) {
@@ -112,6 +125,7 @@ class _AppGateState extends State<AppGate> {
       _loadError = null;
       _editingProfile = false;
       _loading = userId != null;
+      if (userId != null) _authFailure = null;
     });
     if (userId != null) await _loadProfile(userId);
   }
@@ -120,24 +134,13 @@ class _AppGateState extends State<AppGate> {
     final repository = widget.profileRepository;
     if (repository == null) return;
     try {
-      final profile = await repository.load(userId);
-      if (!mounted || userId != _userId) return;
-      final resolved =
-          profile ??
-          AthleteProfile(
-            palette: widget.themeController.value.palette,
-            isDark: widget.themeController.value.isDark,
-          );
-      if (profile != null) {
-        await widget.themeController.update(profile.themePreferences);
-      }
+      final profile = await repository.loadCurrent();
       if (!mounted || userId != _userId) return;
       setState(() {
-        _profile = resolved;
+        _profile = profile;
         _loading = false;
-        _loadError = null;
       });
-    } catch (error) {
+    } on Object catch (error) {
       if (!mounted || userId != _userId) return;
       setState(() {
         _loadError = error;
@@ -146,32 +149,27 @@ class _AppGateState extends State<AppGate> {
     }
   }
 
+  /// Saves the questionnaire. The screen stays on the confirmation until the
+  /// user continues ([_onQuestionnaireFinished]).
   Future<void> _saveProfile(AthleteProfile profile) async {
     final userId = _userId;
     final repository = widget.profileRepository;
     if (userId == null || repository == null) {
       throw StateError('Aucune session Supabase active.');
     }
-    await repository.save(userId, profile);
-    await widget.themeController.update(profile.themePreferences);
-    if (!mounted) return;
-    setState(() => _profile = profile);
+    await repository.saveCurrent(profile);
+    try {
+      await widget.draftStore.clear(userId);
+    } on Object {
+      // The profile is saved; a stale local draft is ignored once it exists.
+    }
   }
 
-  Future<void> _saveTheme(ThemePreferences preferences) async {
-    await widget.themeController.update(preferences);
-    final profile = _profile;
-    final userId = _userId;
-    final repository = widget.profileRepository;
-    if (profile != null && userId != null && repository != null) {
-      final updated = AthleteProfile.fromMap({
-        ...profile.toMap(),
-        'preferred_palette': preferences.palette.name,
-        'is_dark_mode': preferences.isDark,
-      });
-      await repository.save(userId, updated);
-      if (mounted) setState(() => _profile = updated);
-    }
+  void _onQuestionnaireFinished(AthleteProfile profile) {
+    setState(() {
+      _profile = profile;
+      _editingProfile = false;
+    });
   }
 
   Future<void> _signOut() async {
@@ -191,6 +189,7 @@ class _AppGateState extends State<AppGate> {
   void dispose() {
     _authSubscription?.cancel();
     _passwordRecoverySubscription?.cancel();
+    _authFailureSubscription?.cancel();
     super.dispose();
   }
 
@@ -202,19 +201,11 @@ class _AppGateState extends State<AppGate> {
       return PasswordRecoveryScreen(onUpdatePassword: _updatePassword);
     }
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-    if (_loadError != null) {
-      return _ErrorScreen(
-        message: _loadError is Exception
-            ? 'Impossible de charger votre profil. Vérifiez votre connexion '
-                  'et les migrations Supabase, puis réessayez.'
-            : 'Une erreur inattendue est survenue. Réessayez.',
-        onRetry: () {
-          final userId = _userId;
-          if (userId != null) unawaited(_loadProfile(userId));
-        },
-        onSignOut: auth == null ? null : () => unawaited(_signOut()),
+      return const EvolupBackground(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Center(child: CircularProgressIndicator()),
+        ),
       );
     }
     if (auth == null || profileRepository == null) {
@@ -226,36 +217,50 @@ class _AppGateState extends State<AppGate> {
                 'SUPABASE_PUBLISHABLE_KEY au lancement.',
       );
     }
-    if (_userId == null) {
-      return SignInScreen(authRepository: auth);
+    final userId = _userId;
+    if (userId == null) {
+      return SignInScreen(authRepository: auth, initialFailure: _authFailure);
     }
-    final profile = _profile;
-    if (profile == null) {
+    if (_loadError != null) {
       return _ErrorScreen(
-        message: 'Votre profil n’a pas pu être chargé.',
-        onRetry: () => unawaited(_loadProfile(_userId!)),
+        message: _loadError is Exception
+            ? 'Impossible de charger votre profil. Vérifiez votre connexion, '
+                  'puis réessayez.'
+            : 'Une erreur inattendue est survenue. Réessayez.',
+        onRetry: () {
+          setState(() {
+            _loading = true;
+            _loadError = null;
+          });
+          unawaited(_loadProfile(userId));
+        },
         onSignOut: () => unawaited(_signOut()),
       );
     }
-    if (!profile.onboardingCompleted ||
-        !profile.isComplete ||
-        _editingProfile) {
-      return OnboardingScreen(
+    final profile = _profile;
+    if (profile == null || _editingProfile) {
+      return QuestionnaireScreen(
         key: ValueKey(
-          'onboarding-$_userId-${_editingProfile ? 'edit' : 'new'}',
+          'questionnaire-$userId-${_editingProfile ? 'edit' : 'new'}',
         ),
-        initialProfile: profile,
-        themeController: widget.themeController,
+        userId: userId,
+        draftStore: widget.draftStore,
+        initialProfile: _editingProfile ? profile : null,
         onSave: _saveProfile,
+        onFinished: _onQuestionnaireFinished,
         onSignOut: _signOut,
+        onCancel: _editingProfile
+            ? () => setState(() => _editingProfile = false)
+            : null,
       );
     }
-    return HomeScreen(
-      profile: profile,
-      themeController: widget.themeController,
-      onEditProfile: () => setState(() => _editingProfile = true),
-      onThemeChanged: _saveTheme,
-      onSignOut: _signOut,
+    return AppShell(
+      home: HomeScreen(
+        profile: profile,
+        onEditProfile: () => setState(() => _editingProfile = true),
+        onSignOut: _signOut,
+      ),
+      coach: CoachScreen(repository: widget.coachRepository),
     );
   }
 }
@@ -269,33 +274,41 @@ class _ErrorScreen extends StatelessWidget {
 
   final String message;
   final VoidCallback onRetry;
-  final VoidCallback? onSignOut;
+  final VoidCallback onSignOut;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    body: SafeArea(
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.cloud_off_outlined, size: 44),
-                const SizedBox(height: 20),
-                Text(message, textAlign: TextAlign.center),
-                const SizedBox(height: 20),
-                FilledButton(
-                  onPressed: onRetry,
-                  child: const Text('Réessayer'),
+  Widget build(BuildContext context) => EvolupBackground(
+    child: Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: GlassCard(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.cloud_off_outlined,
+                      size: 44,
+                      color: EvolupColors.textSecondary,
+                    ),
+                    const SizedBox(height: 20),
+                    Text(message, textAlign: TextAlign.center),
+                    const SizedBox(height: 20),
+                    FilledButton(
+                      onPressed: onRetry,
+                      child: const Text('Réessayer'),
+                    ),
+                    TextButton(
+                      onPressed: onSignOut,
+                      child: const Text('Se déconnecter'),
+                    ),
+                  ],
                 ),
-                if (onSignOut != null)
-                  TextButton(
-                    onPressed: onSignOut,
-                    child: const Text('Se déconnecter'),
-                  ),
-              ],
+              ),
             ),
           ),
         ),
