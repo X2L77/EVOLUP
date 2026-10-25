@@ -132,7 +132,15 @@ OAuth return (web, Android, iOS). Nothing else needs to change in the code.
 The app sends chat messages to the `coach-chat` Edge Function with the
 user's session; the function checks the session, calls Polomix with the
 `POLOMIX_API_KEY` secret and returns the reply. The key never reaches the app,
-Git or the logs. It is **not deployed yet**. Owner steps, in order:
+Git or the logs. It was **deployed on 2026-10-25** (version 1) and answered
+real messages from an Android phone; calls without a session are refused
+(HTTP 401, verified). The function asks Polomix for the final answer inside an
+`<answer>` block and only returns that block, because Polomix's reply can
+start with the model's analysis (details in the function's `README.md`). This
+is version 2, deployed on 2026-10-25: on the phone, two of three questions got
+a clean answer and the third was refused (no `<answer>` block), so the model
+does not follow this format reliably; the next step is open. Owner steps, in
+order:
 
 1. Create a key in Polomix (API dashboard; it is shown once) and keep it in a
    password manager, never in a file of this repository.
@@ -141,8 +149,9 @@ Git or the logs. It is **not deployed yet**. Owner steps, in order:
    e.g. `npx supabase secrets set POLOMIX_API_KEY=…`, stays in the shell
    history). For the published web app, also add `COACH_ALLOWED_ORIGINS` with
    its origin (default when unset: `http://localhost:5000`).
-3. Deploy after review: `npx supabase functions deploy coach-chat`
-   (`verify_jwt = false` is set for it in `supabase/config.toml`: the session
+3. Deploy after review: `npx supabase functions deploy coach-chat --use-api`
+   (`--use-api` bundles on Supabase's side, no Docker needed;
+   `verify_jwt = false` is set for it in `supabase/config.toml`: the session
    is verified inside the function).
 4. Test from the app, signed in, with a neutral message such as « Bonjour ».
 
@@ -214,7 +223,7 @@ consistency between `profile_rules.dart` and the migration.
 
 The Edge Function has its own tests (fake Polomix and session, no key, no
 network), run from `supabase/functions/coach-chat/` with Deno, e.g.
-`npx -y deno@2.9.6 test --no-prompt handler_test.ts polomix_test.ts`.
+`npx -y deno@2.9.6 test --no-prompt answer_format_test.ts handler_test.ts polomix_test.ts`.
 
 Verified against the real project (2026-10-23, read-only, no account
 created): an unknown address returns `invalid_credentials` and the web app

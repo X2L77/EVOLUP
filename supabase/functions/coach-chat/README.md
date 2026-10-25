@@ -13,8 +13,16 @@ Requête : `{ "kind": "chat", "message": "<texte>" }`. Le message est nettoyé
 (espaces de début et de fin) et limité à 2 000 caractères ; le corps est limité
 à 16 Ko.
 
+Envoi à Polomix (`answer_format.ts`) : une consigne fixe d'EVOLUP (répondre
+comme dans un chat, réponse finale entre `<answer>` et `</answer>`, sans analyse
+ni commentaire sur les consignes), puis le message de l'utilisateur, inchangé.
+Seul le contenu du dernier bloc `<answer>` complet est renvoyé à l'application,
+mot pour mot (espaces de début et de fin retirés). Une réponse sans ce bloc est
+refusée (`coach_bad_response`) : elle n'est ni affichée brute ni découpée par
+devinette.
+
 Réponse :
-`{ "kind": "chat", "reply": "<réponse réelle de Polomix>", "model":
+`{ "kind": "chat", "reply": "<réponse de Polomix (bloc answer)>", "model":
 "chatix-25" }`.
 
 Erreur : `{ "error": { "code": "<code>", "message": "<texte court>" } }`.
@@ -34,7 +42,7 @@ Erreur : `{ "error": { "code": "<code>", "message": "<texte court>" } }`.
 | `coach_unavailable`                 | 502  | Polomix : clé refusée, 5xx, réseau                        |
 | `coach_rejected`                    | 502  | Polomix : 400/413/422                                     |
 | `coach_timeout`                     | 504  | Pas de réponse en 30 s                                    |
-| `coach_bad_response`                | 502  | Réponse 2xx sans `reply` exploitable                      |
+| `coach_bad_response`                | 502  | Réponse 2xx sans `reply` exploitable ou sans `<answer>`   |
 
 Les réponses d'erreur ne contiennent jamais la clé, le corps renvoyé par
 Polomix, ni de détail interne.
@@ -59,8 +67,9 @@ Polomix, ni de détail interne.
   quota fiable : les compteurs repartent à zéro au démarrage d'une instance et
   ne sont pas partagés. Un quota fiable demandera une table (`coach_usage`)
   écrite par la fonction : migration à valider séparément.
-- **Journaux** : résultat, statut HTTP de Polomix et durée uniquement ; ni
-  message, ni utilisateur, ni jeton.
+- **Journaux** : résultat, statut HTTP de Polomix, durée et, si le bloc
+  `<answer>` manque, `detail: "answer_missing"` ; ni message, ni réponse, ni
+  utilisateur, ni jeton.
 
 ## Polomix (documentation consultée le 2026-10-25)
 
@@ -80,11 +89,40 @@ site) et appels sans clé valide.
   réponse sans streaming, historique : non documentés.
 - Quotas affichés par le site : jetons par jour et par mois selon l'offre (8 000
   / jour et 240 000 / mois pour l'offre gratuite), 3 clés par compte.
-- **Non vérifié sans clé** : forme réelle d'une réponse réussie, codes renvoyés
-  en cas de quota, taille maximale d'un message, délai de réponse.
+- **Non vérifié** : forme brute complète d'une réponse réussie (jamais
+  journalisée), codes renvoyés en cas de quota, taille maximale d'un message.
 
-Conséquence v1 : chaque message est envoyé seul, sans historique ni consigne
-système ; le coach ne garde pas le fil de la conversation.
+Constats du 2026-10-25 (fonction déployée, deux vrais échanges réussis en 4 s et
+9 s) :
+
+- À la question « Qui est ton créateur ? », le texte affiché (le champ `reply`,
+  seulement nettoyé de ses espaces par la fonction et l'application) commençait
+  par « User asks: … », « Context: The system prompt provides specific
+  instructions… » et une analyse du respect de ces consignes, puis donnait la
+  réponse. EVOLUP n'envoie aucune consigne système : celle dont parle le modèle
+  est appliquée par Polomix, invisible et non configurable depuis l'endpoint
+  simple.
+- Le chat web de Polomix (code public, `Chat.tsx`) reçoit lui aussi un seul
+  texte et le découpe dans le navigateur en « raisonnement » et « Réponse finale
+  » en repérant des titres (« Raisonnement », « Analyse », « Réponse finale », «
+  Final answer »…). Il envoie sa propre consigne `system` à un endpoint interne
+  (`/api/chat/stream`), non documenté pour l'API publique.
+- Ce que ces éléments ne permettent pas d'établir : s'il s'agit d'un
+  raisonnement interne du modèle ou d'une mise en forme choisie par lui, et si
+  l'API publique accepte un rôle `system`.
+
+Conséquence : chaque message est envoyé seul, sans historique, précédé de la
+consigne de format ci-dessus ; le coach ne garde pas le fil de la conversation.
+Si le modèle ne respecte pas le bloc `<answer>`, l'utilisateur voit « La réponse
+du coach est inutilisable. » avec « Réessayer » (taux mesurable dans les
+journaux : `detail: "answer_missing"`).
+
+Version 2 (bloc `<answer>`), déployée le 2026-10-25, observée sur le S22 : «
+Bonjour » et « Qui est ton créateur » ont reçu une réponse propre, sans analyse
+; « Explique moi la théorie des cordes » a échoué deux fois (`answer_missing`,
+environ 4 s) : **le modèle ne respecte pas le format de façon fiable**. La
+documentation de Polomix ne décrit aucun moyen de séparer l'analyse de la
+réponse (ni champ dédié, ni consigne système, ni réglage du modèle).
 
 ## Tests locaux (sans clé)
 
@@ -94,7 +132,7 @@ Avec Deno (par exemple `npx -y deno@2.9.6`), depuis ce dossier :
 npx -y deno@2.9.6 fmt --check .
 npx -y deno@2.9.6 lint .
 npx -y deno@2.9.6 check *.ts
-npx -y deno@2.9.6 test --no-prompt handler_test.ts polomix_test.ts
+npx -y deno@2.9.6 test --no-prompt answer_format_test.ts handler_test.ts polomix_test.ts
 ```
 
 Les tests remplacent Polomix et la vérification de session par des faux : aucun

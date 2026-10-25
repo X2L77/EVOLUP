@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { chatPrompt } from './answer_format.ts';
 import { MAX_BODY_BYTES, MAX_MESSAGE_LENGTH } from './contract.ts';
 import { allowedOriginsFrom } from './cors.ts';
 import { createHandler, type LogEvent } from './handler.ts';
@@ -22,8 +23,12 @@ function setup(
     chat: (message) => {
       calls.push(message);
       return Promise.resolve(
-        options.result ??
-          { ok: true, reply: 'Réponse', model: 'chatix-25', tokensUsed: 3 },
+        options.result ?? {
+          ok: true,
+          reply: '<answer>Réponse</answer>',
+          model: 'chatix-25',
+          tokensUsed: 3,
+        },
       );
     },
   };
@@ -68,8 +73,65 @@ Deno.test('a signed-in chat message returns the real Polomix reply', async () =>
     reply: 'Réponse',
     model: 'chatix-25',
   });
-  assert.deepEqual(calls, ['Bonjour']);
+  assert.deepEqual(calls, [chatPrompt('Bonjour')]);
   assert.equal(response.headers.get('Cache-Control'), 'no-store');
+});
+
+// Structure of the reply seen in the app on 2026-10-25 for « Qui est ton
+// créateur ? », as reported by the owner (not the raw Polomix text).
+const ANALYSIS = [
+  'User asks: "Qui est ton créateur ?"',
+  'Context: The system prompt provides specific instructions about identity.',
+  'Analysis: the instructions must be followed; answer briefly in French.',
+].join('\n');
+
+Deno.test('regression: an analysis before the answer is never shown', async () => {
+  const { handle, calls, logs } = setup({
+    result: {
+      ok: true,
+      reply: `${ANALYSIS}\n<answer>Je suis un assistant IA.</answer>`,
+      model: 'chatix-25',
+      tokensUsed: 40,
+    },
+  });
+  const response = await handle(
+    post({ kind: 'chat', message: 'Qui est ton créateur ?' }),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    kind: 'chat',
+    reply: 'Je suis un assistant IA.',
+    model: 'chatix-25',
+  });
+  assert.deepEqual(calls, [chatPrompt('Qui est ton créateur ?')]);
+  assert.equal(logs.at(-1)?.outcome, 'ok');
+});
+
+Deno.test('regression: a reply without the answer block is refused, not shown', async () => {
+  const { handle, logs } = setup({
+    result: {
+      ok: true,
+      reply: `${ANALYSIS}\nRéponse finale : Je suis un assistant IA.`,
+      model: 'chatix-25',
+      tokensUsed: 40,
+    },
+  });
+  const response = await handle(
+    post({ kind: 'chat', message: 'Qui est ton créateur ?' }),
+  );
+  assert.equal(response.status, 502);
+  const text = await response.text();
+  assert.equal(JSON.parse(text).error.code, 'coach_bad_response');
+  for (const leaked of ['User asks', 'system prompt', 'assistant IA']) {
+    assert.equal(text.includes(leaked), false, leaked);
+  }
+  // The log says why, without any of the reply's text.
+  assert.deepEqual(logs.at(-1), {
+    event: 'coach_chat',
+    outcome: 'coach_bad_response',
+    detail: 'answer_missing',
+    durationMs: 0,
+  });
 });
 
 Deno.test('requests without a valid session never reach Polomix', async () => {
@@ -198,7 +260,7 @@ Deno.test('CORS: allowed origins get headers, others are refused', async () => {
     assert.equal(refused.status, 403, method);
     assert.equal(refused.headers.get('Access-Control-Allow-Origin'), null);
   }
-  assert.deepEqual(calls, ['Bonjour']);
+  assert.deepEqual(calls, [chatPrompt('Bonjour')]);
 
   // A preflight never carries a session; a POST without one is still refused.
   const noSession = await handle(

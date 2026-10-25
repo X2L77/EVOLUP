@@ -2,6 +2,7 @@
 // runtime: authentication, Polomix and the rate limiter are injected, so the
 // whole flow is testable without a key or a deployed project.
 
+import { chatPrompt, extractAnswer } from './answer_format.ts';
 import {
   MAX_BODY_BYTES,
   parseCoachRequest,
@@ -32,6 +33,8 @@ export type LogEvent = {
   event: 'coach_chat';
   outcome: 'ok' | ErrorCode;
   upstreamStatus?: number;
+  /** Polomix replied without the requested <answer> block. */
+  detail?: 'answer_missing';
   durationMs: number;
 };
 
@@ -103,6 +106,7 @@ export function createHandler(deps: HandlerDeps) {
       deps.allowedOrigins,
     );
     let upstreamStatus: number | undefined;
+    let detail: LogEvent['detail'];
 
     const finish = (
       outcome: 'ok' | ErrorCode,
@@ -112,6 +116,7 @@ export function createHandler(deps: HandlerDeps) {
         event: 'coach_chat',
         outcome,
         ...(upstreamStatus === undefined ? {} : { upstreamStatus }),
+        ...(detail === undefined ? {} : { detail }),
         durationMs: now() - started,
       });
       return response;
@@ -162,15 +167,23 @@ export function createHandler(deps: HandlerDeps) {
       });
     }
     try {
-      const result = await deps.polomix.chat(parsed.request.message);
+      const result = await deps.polomix.chat(
+        chatPrompt(parsed.request.message),
+      );
       if (!result.ok) {
         upstreamStatus = result.status;
         return fail(UPSTREAM_ERROR[result.failure]);
       }
+      // Only the requested answer reaches the user (answer_format.ts).
+      const answer = extractAnswer(result.reply);
+      if (answer === null) {
+        detail = 'answer_missing';
+        return fail('coach_bad_response');
+      }
       return finish(
         'ok',
         json(
-          { kind: 'chat', reply: result.reply, model: result.model },
+          { kind: 'chat', reply: answer, model: result.model },
           200,
           cors,
         ),
