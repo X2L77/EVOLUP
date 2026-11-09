@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import '../../../app/widgets/button_spinner.dart';
 import '../../../theme/evolup_theme.dart';
 import '../coach_controller.dart';
+import 'coach_markdown.dart';
 
-/// One message of the conversation: the user's on the right, the coach's
-/// (selectable, announced to screen readers) on the left.
+/// One message of the conversation: the user's on the right, shown as typed;
+/// the coach's on the left, rendered from Markdown (selectable, announced to
+/// screen readers).
 class CoachMessageBubble extends StatelessWidget {
   const CoachMessageBubble({required this.message, super.key});
 
@@ -16,7 +18,6 @@ class CoachMessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fromUser = message.author == CoachAuthor.user;
-    final style = Theme.of(context).textTheme.bodyLarge;
     return _Bubble(
       fromUser: fromUser,
       child: Semantics(
@@ -24,8 +25,8 @@ class CoachMessageBubble extends StatelessWidget {
         liveRegion: !fromUser,
         label: fromUser ? 'Vous' : 'Coach IA',
         child: fromUser
-            ? Text(message.text, style: style)
-            : SelectableText(message.text, style: style),
+            ? Text(message.text, style: Theme.of(context).textTheme.bodyLarge)
+            : CoachMarkdown(message.text),
       ),
     );
   }

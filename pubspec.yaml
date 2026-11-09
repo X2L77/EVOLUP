@@ -38,6 +38,11 @@ dependencies:
   shared_preferences: ^2.5.3
   # Reads the public Supabase Auth settings (enabled OAuth providers).
   http: ^1.6.0
+  # Renders the coach's Markdown replies. Pinned: markdown 7.3.1 (and
+  # flutter_markdown_plus >= 1.0.8, which needs it) requires Dart 3.9, above
+  # the project's Dart 3.8 floor.
+  flutter_markdown_plus: 1.0.7
+  markdown: 7.3.0
 
 dev_dependencies:
   flutter_test:

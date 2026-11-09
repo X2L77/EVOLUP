@@ -113,10 +113,11 @@ async function parseReply(response: Response): Promise<PolomixResult> {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return malformed;
   }
-  const { reply, model, tokens_used: tokensUsed } = body as Record<
+  const { reply, model, tokens_used: tokensUsed, error } = body as Record<
     string,
     unknown
   >;
+  if (isExplicitError(error)) return malformed;
   if (typeof reply !== 'string') return malformed;
   const trimmed = reply.trim();
   if (trimmed.length === 0 || trimmed.length > MAX_REPLY_LENGTH) {
@@ -130,6 +131,17 @@ async function parseReply(response: Response): Promise<PolomixResult> {
       : POLOMIX_MODEL,
     tokensUsed: parseTokens(tokensUsed),
   };
+}
+
+/**
+ * A 2xx carrying an explicit error (`true`, an object or a non-empty text) is
+ * not a reply, whatever its text. An absent, `null`, `false` or blank error is
+ * not a reason to reject.
+ */
+function isExplicitError(value: unknown): boolean {
+  return value === true ||
+    (typeof value === 'object' && value !== null) ||
+    (typeof value === 'string' && value.trim().length > 0);
 }
 
 /** The documentation shows `tokens_used` as a string: accept both forms. */

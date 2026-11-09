@@ -134,13 +134,13 @@ user's session; the function checks the session, calls Polomix with the
 `POLOMIX_API_KEY` secret and returns the reply. The key never reaches the app,
 Git or the logs. It was **deployed on 2026-10-25** (version 1) and answered
 real messages from an Android phone; calls without a session are refused
-(HTTP 401, verified). The function asks Polomix for the final answer inside an
-`<answer>` block and only returns that block, because Polomix's reply can
-start with the model's analysis (details in the function's `README.md`). This
-is version 2, deployed on 2026-10-25: on the phone, two of three questions got
-a clean answer and the third was refused (no `<answer>` block), so the model
-does not follow this format reliably; the next step is open. Owner steps, in
-order:
+(HTTP 401, verified). Version 2 (deployed the same day) required an `<answer>`
+block that the model does not follow reliably. The local version goes back to
+the documented contract: the user's message is sent alone and Polomix's
+`reply` field is returned as is, after checking the HTTP status and the JSON
+shape; it is **not deployed yet**. Polomix's reply can include the model's
+analysis before the answer, which is then shown (details in the function's
+`README.md`). Owner steps, in order:
 
 1. Create a key in Polomix (API dashboard; it is shown once) and keep it in a
    password manager, never in a file of this repository.
@@ -193,7 +193,11 @@ remote data.
   message at a time, clear errors with retry, Enter to send with a hardware
   keyboard (Shift+Enter for a new line) and the send key on Android/iOS,
   latest message kept in view, field kept above the keyboard. Only replies
-  really received from Polomix are shown; nothing is invented on failure. The
+  really received from Polomix are shown; nothing is invented on failure.
+  Coach replies are rendered from Markdown (bold, italic, headings, lists,
+  quotes, code; line breaks kept) with `flutter_markdown_plus`: images are
+  never loaded (alternative text only), links are not opened and HTML is
+  shown as plain text. The user's own messages are shown exactly as typed. The
   conversation is temporary (not saved) and each message is answered on its
   own (no history sent). No profile data is sent to Polomix.
 - An explicit unavailable state for statistics; no fictional data.
@@ -223,7 +227,7 @@ consistency between `profile_rules.dart` and the migration.
 
 The Edge Function has its own tests (fake Polomix and session, no key, no
 network), run from `supabase/functions/coach-chat/` with Deno, e.g.
-`npx -y deno@2.9.6 test --no-prompt answer_format_test.ts handler_test.ts polomix_test.ts`.
+`npx -y deno@2.9.6 test --no-prompt handler_test.ts polomix_test.ts`.
 
 Verified against the real project (2026-10-23, read-only, no account
 created): an unknown address returns `invalid_credentials` and the web app

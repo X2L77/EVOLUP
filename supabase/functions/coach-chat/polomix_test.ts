@@ -84,16 +84,69 @@ Deno.test('HTTP errors are classified without exposing the body', async () => {
     );
     assert.deepEqual(await client.chat('x'), { ok: false, failure, status });
   }
+  // An error status is never a reply, even with a `reply` field or no JSON.
+  const withReply = clientReturning(json({ reply: 'Bonjour' }, 500));
+  assert.deepEqual(await withReply.client.chat('x'), {
+    ok: false,
+    failure: 'unavailable',
+    status: 500,
+  });
+  const html = clientReturning(
+    new Response('<html>Bad gateway</html>', { status: 502 }),
+  );
+  assert.deepEqual(await html.client.chat('x'), {
+    ok: false,
+    failure: 'unavailable',
+    status: 502,
+  });
+});
+
+Deno.test('a normal reply without any tag is accepted as documented', async () => {
+  const text = 'Bonjour !\n\n- Échauffement : 10 min\n- Course : 30 min';
+  const { client } = clientReturning(
+    json({ reply: text, tokens_used: '25', model: 'chatix-25' }),
+  );
+  assert.deepEqual(await client.chat('x'), {
+    ok: true,
+    reply: text,
+    model: 'chatix-25',
+    tokensUsed: 25,
+  });
+});
+
+Deno.test('an absent, null, false or blank error does not reject a reply', async () => {
+  for (const error of [undefined, null, false, '', '   ']) {
+    const { client } = clientReturning(
+      json({ reply: 'Bonjour', tokens_used: 3, model: 'chatix-25', error }),
+    );
+    assert.deepEqual(
+      await client.chat('x'),
+      { ok: true, reply: 'Bonjour', model: 'chatix-25', tokensUsed: 3 },
+      String(error),
+    );
+  }
 });
 
 Deno.test('malformed successful responses are rejected', async () => {
   const bodies: (string | unknown)[] = [
+    // Text alone is not a reply: the documented JSON object is required.
     'pas du JSON',
+    'Bonjour ! Je suis le coach.',
+    '"Bonjour"',
     [],
     null,
     {},
+    { message: 'Bonjour' },
+    { reply: null },
     { reply: 42 },
+    { reply: '' },
     { reply: '   ' },
+    // An explicit error (true, object or non-empty text) is not a reply, even
+    // next to some text.
+    { error: { message: 'Quota atteint.' } },
+    { reply: 'Bonjour', error: { message: 'Quota atteint.' } },
+    { reply: 'Bonjour', error: 'Quota atteint.' },
+    { reply: 'Bonjour', error: true },
     { reply: 'a'.repeat(MAX_REPLY_LENGTH + 1) },
   ];
   for (const body of bodies) {
