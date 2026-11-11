@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/format/dates.dart';
 import '../../app/session/app_session.dart';
 import '../../app/widgets/button_spinner.dart';
-import '../../app/widgets/evolup_background.dart';
+import '../../app/widgets/evolup_page.dart';
 import '../../app/widgets/glass_card.dart';
 import '../../app/widgets/press_scale.dart';
 import '../../app/widgets/status_message.dart';
@@ -144,97 +144,91 @@ class _MetricEntryScreenState extends State<MetricEntryScreen> {
     final colors = EvolupColors.of(context);
     final session = SessionScope.of(context);
     final category = session.metrics.category(widget.definition.categoryId);
-    return EvolupBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          leading: IconButton(
-            key: const Key('entry-close'),
-            tooltip: 'Annuler',
-            icon: const Icon(Icons.close_rounded),
-            onPressed: () => Navigator.of(context).maybePop(_entry.result),
-          ),
-        ),
-        body: SafeArea(
-          top: false,
-          child: Column(
-            children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 560),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            widget.definition.name,
-                            key: const Key('entry-title'),
-                            style: Theme.of(context).textTheme.headlineMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.5,
-                                ),
-                          ),
-                          if (category != null) ...[
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.label_outline_rounded,
-                                  size: 16,
-                                  color: colors.accent,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  category.name,
-                                  key: const Key('entry-category'),
-                                  style: TextStyle(color: colors.textSecondary),
-                                ),
-                              ],
-                            ),
-                          ],
-                          const SizedBox(height: 20),
-                          AnimatedSwitcher(
-                            duration: MediaQuery.disableAnimationsOf(context)
-                                ? Duration.zero
-                                : const Duration(milliseconds: 220),
-                            child: _entry.isSaved
-                                ? _SavedPanel(
-                                    key: const Key('entry-saved'),
-                                    controller: _entry,
-                                    onDone: () => Navigator.of(
-                                      context,
-                                    ).pop(_entry.result),
-                                    onAnother: _startAnother,
-                                  )
-                                : _form(context),
+    return EvolupPage(
+      leading: IconButton(
+        key: const Key('entry-close'),
+        tooltip: 'Annuler',
+        icon: const Icon(Icons.close_rounded),
+        onPressed: () => Navigator.of(context).maybePop(_entry.result),
+      ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 560),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          widget.definition.name,
+                          key: const Key('entry-title'),
+                          style: Theme.of(context).textTheme.headlineMedium
+                              ?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.5,
+                              ),
+                        ),
+                        if (category != null) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.label_outline_rounded,
+                                size: 16,
+                                color: colors.accent,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                category.name,
+                                key: const Key('entry-category'),
+                                style: TextStyle(color: colors.textSecondary),
+                              ),
+                            ],
                           ),
                         ],
-                      ),
+                        const SizedBox(height: 20),
+                        AnimatedSwitcher(
+                          duration: MediaQuery.disableAnimationsOf(context)
+                              ? Duration.zero
+                              : const Duration(milliseconds: 220),
+                          child: _entry.isSaved
+                              ? _SavedPanel(
+                                  key: const Key('entry-saved'),
+                                  controller: _entry,
+                                  onDone: () =>
+                                      Navigator.of(context).pop(_entry.result),
+                                  onAnother: _startAnother,
+                                )
+                              : _form(context),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
-              if (!_entry.isSaved)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 560),
-                    child: PressScale(
-                      child: FilledButton(
-                        key: const Key('entry-submit'),
-                        onPressed: _entry.saving ? null : _submit,
-                        child: _entry.saving
-                            ? const ButtonSpinner()
-                            : const Text('Valider'),
-                      ),
+            ),
+            if (!_entry.isSaved)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: PressScale(
+                    child: FilledButton(
+                      key: const Key('entry-submit'),
+                      onPressed: _entry.saving ? null : _submit,
+                      child: _entry.saving
+                          ? const ButtonSpinner()
+                          : const Text('Valider'),
                     ),
                   ),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );

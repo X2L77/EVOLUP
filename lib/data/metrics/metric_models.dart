@@ -328,13 +328,14 @@ class SeriesPoint {
 class MetricSeries {
   const MetricSeries({required this.bucket, required this.points});
 
+  /// The rows of `get_metric_history` (none when nothing is recorded in
+  /// the period).
   factory MetricSeries.fromRows(Object? data, {SeriesBucket? requested}) {
-    final rows = data is List ? data : const [];
+    final rows = _list(data, 'series');
     final points = [
-      for (final row in rows)
-        if (row is Map) SeriesPoint.fromMap(Map<String, dynamic>.from(row)),
+      for (final row in rows) SeriesPoint.fromMap(_map(row, 'series point')),
     ];
-    final bucket = rows.isNotEmpty && rows.first is Map
+    final bucket = rows.isNotEmpty
         ? SeriesBucket.parse((rows.first as Map)['bucket'])
         : requested ?? SeriesBucket.day;
     return MetricSeries(bucket: bucket, points: points);
@@ -356,8 +357,10 @@ class PeriodSummary {
     this.lastDate,
   });
 
+  /// Always an object in the SQL answers, with zero days when nothing is
+  /// recorded: a missing one is an unusable answer, not an empty period.
   factory PeriodSummary.fromMap(Object? data) {
-    final map = data is Map ? data : const {};
+    final map = _map(data, 'period summary');
     return PeriodSummary(
       value: _number(map['value']),
       perDayAverage: _number(map['per_day_average']),
@@ -431,7 +434,7 @@ class MetricStatistics {
   });
 
   factory MetricStatistics.fromResponse(Object? data) {
-    final map = data is Map ? data : const {};
+    final map = _map(data, 'statistics');
     return MetricStatistics(
       period: PeriodSummary.fromMap(map['period']),
       allTime: PeriodSummary.fromMap(map['all_time']),
@@ -464,7 +467,7 @@ class PeriodComparison {
   });
 
   factory PeriodComparison.fromResponse(Object? data) {
-    final map = data is Map ? data : const {};
+    final map = _map(data, 'comparison');
     return PeriodComparison(
       reference: PeriodSummary.fromMap(map['a']),
       compared: PeriodSummary.fromMap(map['b']),
@@ -538,20 +541,22 @@ class Overview {
     this.firstDate,
   });
 
+  /// The answer of `get_overview`, which always has a day and a list (empty
+  /// for a new user). Anything else is an unusable answer, never an empty
+  /// overview: "nothing recorded" must only be shown when it is true.
   factory Overview.fromResponse(Object? data) {
-    final map = data is Map ? data : const {};
-    final metrics = map['metrics'];
+    final map = _map(data, 'overview');
+    final today = _date(map['today']);
+    if (today == null) throw const FormatException('Overview without today');
     return Overview(
-      today: _date(map['today']) ?? LocalDate.today(),
+      today: today,
       timezone: map['timezone'] as String? ?? 'UTC',
       daysRecorded: (map['days_recorded'] as num?)?.toInt() ?? 0,
       entriesCount: (map['entries_count'] as num?)?.toInt() ?? 0,
       firstDate: _date(map['first_date']),
       metrics: [
-        if (metrics is List)
-          for (final item in metrics)
-            if (item is Map)
-              OverviewMetric.fromMap(Map<String, dynamic>.from(item)),
+        for (final item in _list(map['metrics'], 'overview metrics'))
+          OverviewMetric.fromMap(_map(item, 'overview metric')),
       ],
     );
   }
@@ -575,3 +580,16 @@ double? _number(Object? value) => switch (value) {
 
 LocalDate? _date(Object? value) =>
     value is String && value.isNotEmpty ? LocalDate.parse(value) : null;
+
+/// A JSON object of the answer; anything else makes the answer unusable
+/// ([FormatException], reported as `DataFailure.badResponse`).
+Map<String, dynamic> _map(Object? value, String what) => switch (value) {
+  Map<String, dynamic>() => value,
+  Map() => Map<String, dynamic>.from(value),
+  _ => throw FormatException('Invalid $what', value),
+};
+
+List<Object?> _list(Object? value, String what) => switch (value) {
+  List() => value,
+  _ => throw FormatException('Invalid $what', value),
+};

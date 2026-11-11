@@ -3,8 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/format/dates.dart';
-import '../../../app/session/app_session.dart';
-import '../../../app/session/metrics_controller.dart';
+import '../../../app/session/revision_reload.dart';
 import '../../../app/widgets/glass_card.dart';
 import '../../../app/widgets/state_views.dart';
 import '../../../data/data_error.dart';
@@ -46,100 +45,126 @@ class MetricAnalysis extends StatefulWidget {
   State<MetricAnalysis> createState() => _MetricAnalysisState();
 }
 
+/// What one load asks the server: the metric, the period's days, the period
+/// it is compared with and the grouping. Two equal queries give the same
+/// answer as long as the recorded data did not change.
+@immutable
+class _Query {
+  const _Query(this.trackedId, this.from, this.to, this.previous, this.bucket);
+
+  final String trackedId;
+  final LocalDate from;
+  final LocalDate to;
+  final (LocalDate, LocalDate)? previous;
+  final SeriesBucket? bucket;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _Query &&
+      other.trackedId == trackedId &&
+      other.from == from &&
+      other.to == to &&
+      other.previous == previous &&
+      other.bucket == bucket;
+
+  @override
+  int get hashCode => Object.hash(trackedId, from, to, previous, bucket);
+}
+
 class _AnalysisData {
   const _AnalysisData(
+    this.query,
     this.period,
     this.stats,
     this.series,
     this.comparison,
-    this.from,
-    this.to,
   );
 
+  final _Query query;
   final StatsPeriod period;
   final MetricStatistics stats;
   final MetricSeries series;
   final PeriodComparison? comparison;
-  final LocalDate from;
-  final LocalDate to;
+  LocalDate get from => query.from;
+  LocalDate get to => query.to;
 }
 
-class _MetricAnalysisState extends State<MetricAnalysis> {
+/// Loads once the session is available, again when the recorded data
+/// change ([RevisionReload]) and when the query changes. Only the latest
+/// load may update the figures; a failed reload keeps the figures of the
+/// same query, never those of another metric or period.
+class _MetricAnalysisState extends State<MetricAnalysis> with RevisionReload {
   _AnalysisData? _data;
   Object? _error;
   int _request = 0;
-  MetricsController? _metrics;
-  int? _revision;
+
+  /// Query of the latest load, running or done: a rebuild with the same
+  /// query does not load it again.
+  _Query? _asked;
 
   LocalDate get _today => widget.today ?? LocalDate.today();
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final metrics = SessionScope.of(context).metrics;
-    if (metrics != _metrics) {
-      _metrics?.removeListener(_onMetrics);
-      _metrics = metrics..addListener(_onMetrics);
-      _revision = metrics.revision;
-      unawaited(_load());
-    }
-  }
-
-  /// Recorded data changed somewhere in the app: reload.
-  void _onMetrics() {
-    if (_metrics!.revision == _revision) return;
-    _revision = _metrics!.revision;
-    unawaited(_load());
+  /// The first recorded day only matters for « Tout »: for the other
+  /// periods, learning it must not reload anything.
+  _Query get _query {
+    final (from, to) = widget.period.range(_today, widget.firstDate);
+    return _Query(
+      widget.tracked.id,
+      from,
+      to,
+      widget.period.previous(_today),
+      widget.bucket,
+    );
   }
 
   @override
-  void dispose() {
-    _metrics?.removeListener(_onMetrics);
-    super.dispose();
-  }
+  Future<void> reload() => _load();
 
   @override
   void didUpdateWidget(MetricAnalysis oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.tracked.id != widget.tracked.id ||
-        oldWidget.period != widget.period ||
-        oldWidget.bucket != widget.bucket ||
-        oldWidget.firstDate != widget.firstDate) {
-      unawaited(_load());
-    }
+    if (_asked != _query) unawaited(_load());
   }
 
   Future<void> _load() async {
     final request = ++_request;
-    final repository = _metrics!.repository;
-    final id = widget.tracked.id;
-    final (from, to) = widget.period.range(_today, widget.firstDate);
-    final previous = widget.period.previous(_today);
+    final query = _asked = _query;
+    // An error belongs to the load it ended; this one starts clean (the
+    // rebuild that follows shows the figures kept, or the loading state).
     _error = null;
+    final period = widget.period;
+    final repository = metrics.repository;
+    final id = query.trackedId;
+    final previous = query.previous;
     try {
-      final stats = repository.loadStatistics(id, from, to);
-      final series = repository.loadSeries(id, from, to, bucket: widget.bucket);
+      final stats = repository.loadStatistics(id, query.from, query.to);
+      final series = repository.loadSeries(
+        id,
+        query.from,
+        query.to,
+        bucket: query.bucket,
+      );
       final comparison = previous == null
           ? Future<PeriodComparison?>.value()
           : repository.comparePeriods(
               id,
               referenceFrom: previous.$1,
               referenceTo: previous.$2,
-              comparedFrom: from,
-              comparedTo: to,
+              comparedFrom: query.from,
+              comparedTo: query.to,
             );
       final results = await Future.wait<Object?>([stats, series, comparison]);
       if (!mounted || request != _request) return;
-      setState(
-        () => _data = _AnalysisData(
-          widget.period,
+      setState(() {
+        _data = _AnalysisData(
+          query,
+          period,
           results[0]! as MetricStatistics,
           results[1]! as MetricSeries,
           results[2] as PeriodComparison?,
-          from,
-          to,
-        ),
-      );
+        );
+        _error = null;
+      });
     } on Object catch (error) {
       if (!mounted || request != _request) return;
       setState(() => _error = error);
@@ -149,14 +174,34 @@ class _MetricAnalysisState extends State<MetricAnalysis> {
   @override
   Widget build(BuildContext context) {
     final error = _error;
-    if (error != null && _data == null) {
-      return ErrorView(
-        message: dataErrorMessage(error),
-        onRetry: () => unawaited(_load()),
-      );
+    final shown = _data;
+    // Figures of another metric would be read with this metric's units.
+    final data = shown?.query.trackedId == widget.tracked.id ? shown : null;
+    // A failed reload keeps the figures it would have refreshed; figures of
+    // another period are not shown as if they answered this one.
+    if (error != null && (data == null || data.query != _query)) {
+      return ErrorView(message: dataErrorMessage(error), onRetry: _retry);
     }
-    final data = _data;
     if (data == null) return const LoadingView();
+    return _Switching(
+      // Figures of the previous period, kept in place while the selected one
+      // loads (no jump), but visibly not its answer.
+      loading: data.query != _query,
+      child: _figures(context, data),
+    );
+  }
+
+  /// The error is replaced by the usual loading view until the answer.
+  void _retry() {
+    setState(() {
+      _error = null;
+      // Only shown in error when it did not answer this query: not kept.
+      _data = null;
+    });
+    unawaited(_load());
+  }
+
+  Widget _figures(BuildContext context, _AnalysisData data) {
     final d = widget.definition;
     final period = data.stats.period;
     final colors = EvolupColors.of(context);
@@ -287,6 +332,47 @@ class _MetricAnalysisState extends State<MetricAnalysis> {
     SeriesBucket.week => 'semaine',
     SeriesBucket.month => 'mois',
   };
+}
+
+/// [child] dimmed and inactive while [loading], under a thin progress bar
+/// laid over its top edge (nothing moves). Without transition when the
+/// system asks to reduce motion.
+class _Switching extends StatelessWidget {
+  const _Switching({required this.loading, required this.child});
+
+  final bool loading;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.passthrough,
+    children: [
+      AnimatedOpacity(
+        key: const Key('analysis-content'),
+        opacity: loading ? 0.45 : 1,
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 200),
+        child: IgnorePointer(ignoring: loading, child: child),
+      ),
+      if (loading)
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: Semantics(
+            label: 'Chargement de la période',
+            child: LinearProgressIndicator(
+              key: const Key('analysis-loading'),
+              minHeight: 3,
+              color: EvolupColors.of(context).accent,
+              backgroundColor: Colors.transparent,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+    ],
+  );
 }
 
 class _Figure extends StatelessWidget {

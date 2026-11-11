@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/session/revision_reload.dart';
 import '../../app/widgets/confirm_dialog.dart';
-import '../../app/widgets/evolup_background.dart';
+import '../../app/widgets/evolup_page.dart';
 import '../../app/widgets/state_views.dart';
 import '../../data/data_error.dart';
 import '../../data/local_date.dart';
@@ -37,7 +37,7 @@ class _MyDataScreenState extends State<MyDataScreen> with RevisionReload {
     // Only the latest reload may update the page (older answers are late).
     final request = ++_request;
     try {
-      final overview = await metrics.repository.loadOverview();
+      final overview = await metrics.loadOverview();
       if (mounted && request == _request) {
         setState(() => _overview = overview);
       }
@@ -182,94 +182,89 @@ class _MyDataScreenState extends State<MyDataScreen> with RevisionReload {
                 : null),
     );
 
-    return EvolupBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(title: const Text('Mes données')),
-        body: PageBody(
-          children: [
-            TextField(
-              key: const Key('data-search'),
-              controller: _search,
-              onChanged: (_) => setState(() {}),
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: 'Rechercher un indicateur',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _search.text.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Effacer',
-                        icon: const Icon(Icons.close_rounded),
-                        onPressed: () => setState(_search.clear),
-                      ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  _CategoryChip(
-                    label: 'Toutes',
-                    selected: _categoryId == null,
-                    onSelected: () => setState(() => _categoryId = null),
-                  ),
-                  for (final category in metrics.categories)
-                    _CategoryChip(
-                      key: Key('category-${category.slug}'),
-                      label: category.name,
-                      selected: _categoryId == category.id,
-                      onSelected: () =>
-                          setState(() => _categoryId = category.id),
+    return EvolupPage(
+      title: const Text('Mes données'),
+      body: PageBody(
+        children: [
+          TextField(
+            key: const Key('data-search'),
+            controller: _search,
+            onChanged: (_) => setState(() {}),
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              hintText: 'Rechercher un indicateur',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: _search.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Effacer',
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => setState(_search.clear),
                     ),
-                ],
-              ),
             ),
-            if (nothing) ...[
-              const SizedBox(height: 24),
-              const EmptyState(
-                icon: Icons.search_off_rounded,
-                title: 'Aucun indicateur ne correspond',
-                message: 'Modifiez la recherche ou la catégorie.',
-              ),
-            ],
-            if (active.isNotEmpty) ...[
-              const SectionHeader('Mes indicateurs'),
-              for (final (t, d) in active) trackedTile(t, d),
-            ] else if (metrics.activeTracked.isEmpty && !nothing) ...[
-              const SizedBox(height: 16),
-              const EmptyState(
-                icon: Icons.dataset_outlined,
-                title: 'Choisissez ce que vous voulez suivre',
-                message:
-                    'Ajoutez des indicateurs du catalogue EVOLUP ci-dessous : '
-                    'sport, sommeil, concentration, apprentissage…',
-              ),
-            ],
-            if (inactive.isNotEmpty) ...[
-              const SectionHeader('Retirés de ma liste'),
-              for (final (t, d) in inactive) trackedTile(t, d),
-            ],
-            if (catalog.isNotEmpty) ...[
-              const SectionHeader('Catalogue EVOLUP'),
-              for (final d in catalog)
-                MetricTile(
-                  key: Key('catalog-${d.slug}'),
-                  definition: d,
-                  categoryName: metrics.category(d.categoryId)?.name ?? '',
-                  comparisonText: d.description,
-                  onTap: () => unawaited(_showDefinition(d)),
-                  trailing: TextButton(
-                    key: Key('track-${d.slug}'),
-                    onPressed: () => unawaited(_track(d)),
-                    child: const Text('Suivre'),
-                  ),
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _CategoryChip(
+                  label: 'Toutes',
+                  selected: _categoryId == null,
+                  onSelected: () => setState(() => _categoryId = null),
                 ),
-            ],
-            const SizedBox(height: 90),
+                for (final category in metrics.categories)
+                  _CategoryChip(
+                    key: Key('category-${category.slug}'),
+                    label: category.name,
+                    selected: _categoryId == category.id,
+                    onSelected: () => setState(() => _categoryId = category.id),
+                  ),
+              ],
+            ),
+          ),
+          if (nothing) ...[
+            const SizedBox(height: 24),
+            const EmptyState(
+              icon: Icons.search_off_rounded,
+              title: 'Aucun indicateur ne correspond',
+              message: 'Modifiez la recherche ou la catégorie.',
+            ),
           ],
-        ),
+          if (active.isNotEmpty) ...[
+            const SectionHeader('Mes indicateurs'),
+            for (final (t, d) in active) trackedTile(t, d),
+          ] else if (metrics.activeTracked.isEmpty && !nothing) ...[
+            const SizedBox(height: 16),
+            const EmptyState(
+              icon: Icons.dataset_outlined,
+              title: 'Choisissez ce que vous voulez suivre',
+              message:
+                  'Ajoutez des indicateurs du catalogue EVOLUP ci-dessous : '
+                  'sport, sommeil, concentration, apprentissage…',
+            ),
+          ],
+          if (inactive.isNotEmpty) ...[
+            const SectionHeader('Retirés de ma liste'),
+            for (final (t, d) in inactive) trackedTile(t, d),
+          ],
+          if (catalog.isNotEmpty) ...[
+            const SectionHeader('Catalogue EVOLUP'),
+            for (final d in catalog)
+              MetricTile(
+                key: Key('catalog-${d.slug}'),
+                definition: d,
+                categoryName: metrics.category(d.categoryId)?.name ?? '',
+                comparisonText: d.description,
+                onTap: () => unawaited(_showDefinition(d)),
+                trailing: TextButton(
+                  key: Key('track-${d.slug}'),
+                  onPressed: () => unawaited(_track(d)),
+                  child: const Text('Suivre'),
+                ),
+              ),
+          ],
+        ],
       ),
     );
   }

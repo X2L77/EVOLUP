@@ -75,7 +75,11 @@ DataFailure classifyDataError(Object error) {
   if (error is DataException) return error.failure;
   if (error is TimeoutException) return DataFailure.timeout;
   if (error is AuthException) return DataFailure.sessionExpired;
-  if (error is FormatException) return DataFailure.badResponse;
+  // An answer that does not have the expected shape: a wrong type or a
+  // missing field while reading it.
+  if (error is FormatException || error is TypeError) {
+    return DataFailure.badResponse;
+  }
   if (error is PostgrestException) return _classifyPostgrest(error);
   if (_isConnectionError(error)) return DataFailure.network;
   return DataFailure.unknown;

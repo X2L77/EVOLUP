@@ -323,7 +323,7 @@ class SupabaseMetricsRepository implements MetricsRepository {
   @override
   Future<List<String>> loadTimezones() => guardRead('loadTimezones', () async {
     final data = await _client.rpc('list_timezones');
-    if (data is! List) return const <String>[];
+    if (data is! List) throw const FormatException('Invalid time zones');
     return [
       for (final item in data)
         if (item is String)

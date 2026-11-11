@@ -18,10 +18,22 @@ import '../../data/metrics/metrics_repository.dart';
 /// more when the abandoned request ends ([DataException.settled]), since the
 /// server may apply it after the first read. A read is applied only if no
 /// newer change of the list happened while it ran.
+///
+/// The overview (`get_overview`) is shared by the pages through
+/// [loadOverview]: one request at a time, its answer reused until the data
+/// changes or it gets older than [overviewMaxAge].
 class MetricsController extends ChangeNotifier {
-  MetricsController(this.repository);
+  MetricsController(this.repository, {DateTime Function()? now})
+    : _now = now ?? DateTime.now;
+
+  /// How long a loaded overview is reused. Every change made from this
+  /// device invalidates it at once; this bound only covers what changes
+  /// elsewhere (another device, a new day in the profile's time zone), so
+  /// a page opened later reads it again, as before the cache.
+  static const overviewMaxAge = Duration(seconds: 30);
 
   final MetricsRepository repository;
+  final DateTime Function() _now;
   List<MetricCategory> _categories = const [];
   List<MetricDefinition> _catalog = const [];
   List<TrackedMetric> _tracked = const [];
@@ -38,6 +50,8 @@ class MetricsController extends ChangeNotifier {
   bool _disposed = false;
   final _pendingTracks = <int, Future<TrackedMetric>>{};
   Future<void>? _pendingDeleteAll;
+  _OverviewRead? _overview;
+  _OverviewRead? _pendingOverview;
 
   List<MetricCategory> get categories => _categories;
   List<MetricDefinition> get catalog => _catalog;
@@ -210,6 +224,47 @@ class MetricsController extends ChangeNotifier {
     _dataChanged();
   }
 
+  /// The overview, shared by every page of the session.
+  ///
+  /// - A request already running for the current state is shared.
+  /// - The last answer is reused while nothing changed since it was asked
+  ///   (no write, no change of the tracked list) and it is recent
+  ///   ([overviewMaxAge]); [refresh] skips it (pull to refresh).
+  /// - An answer asked before a change is returned to its caller (pages
+  ///   order their own reloads) but never kept: it may predate the change.
+  /// - Failures are not kept: the next call asks again.
+  Future<Overview> loadOverview({bool refresh = false}) {
+    final state = _overviewState;
+    final cached = _overview;
+    if (!refresh &&
+        cached != null &&
+        cached.state == state &&
+        _now().difference(cached.askedAt) < overviewMaxAge) {
+      return cached.answer;
+    }
+    final pending = _pendingOverview;
+    if (pending != null && pending.state == state) return pending.answer;
+    final read = _OverviewRead(state, _now(), repository.loadOverview());
+    _pendingOverview = read;
+    unawaited(
+      read.answer.then<void>(
+        (_) {
+          if (identical(_pendingOverview, read)) _pendingOverview = null;
+          if (!_disposed && read.state == _overviewState) _overview = read;
+        },
+        onError: (Object _) {
+          // The caller gets the error; nothing is kept.
+          if (identical(_pendingOverview, read)) _pendingOverview = null;
+        },
+      ),
+    );
+    return read.answer;
+  }
+
+  /// What the overview depends on: the recorded data ([revision]) and the
+  /// tracked list (active, favourite, added). Any change makes it stale.
+  (int, int) get _overviewState => (_revision, _localChanges);
+
   Future<T> _write<T>(Future<T> Function() call) async {
     try {
       return await call();
@@ -263,6 +318,19 @@ class MetricsController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _overview = null;
     super.dispose();
   }
+}
+
+/// One `get_overview` request, with the state of the data when it was asked.
+class _OverviewRead {
+  _OverviewRead(this.state, this.askedAt, this.answer);
+
+  final (int, int) state;
+
+  /// Age is counted from the request, not the answer: the server read the
+  /// data at some point in between.
+  final DateTime askedAt;
+  final Future<Overview> answer;
 }

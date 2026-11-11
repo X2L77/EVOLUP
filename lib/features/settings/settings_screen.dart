@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/session/app_session.dart';
 import '../../app/session/revision_reload.dart';
 import '../../app/widgets/confirm_dialog.dart';
-import '../../app/widgets/evolup_background.dart';
+import '../../app/widgets/evolup_page.dart';
 import '../../app/widgets/glass_card.dart';
 import '../../app/widgets/state_views.dart';
 import '../../data/data_error.dart';
@@ -38,7 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> with RevisionReload {
     // last would show older counts.
     final request = ++_request;
     try {
-      final overview = await metrics.repository.loadOverview();
+      final overview = await metrics.loadOverview();
       if (mounted && request == _request) {
         setState(() => _overview = overview);
       }
@@ -132,209 +132,201 @@ class _SettingsScreenState extends State<SettingsScreen> with RevisionReload {
     final textTheme = Theme.of(context).textTheme;
     final overview = _overview;
     final muted = textTheme.bodySmall?.copyWith(color: colors.textSecondary);
-    return EvolupBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(title: const Text('Paramètres')),
-        body: PageBody(
-          children: [
-            const SectionHeader('Profil'),
-            _Card(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.alternate_email_rounded),
-                  title: const Text('Adresse e-mail'),
-                  subtitle: Text(session.email ?? '—'),
+    return EvolupPage(
+      title: const Text('Paramètres'),
+      body: PageBody(
+        children: [
+          const SectionHeader('Profil'),
+          _Card(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.alternate_email_rounded),
+                title: const Text('Adresse e-mail'),
+                subtitle: Text(session.email ?? '—'),
+              ),
+              ListTile(
+                key: const Key('settings-name'),
+                leading: const Icon(Icons.badge_outlined),
+                title: const Text('Nom d’affichage'),
+                subtitle: Text(profile.displayName ?? 'Non renseigné'),
+                trailing: const Icon(Icons.edit_outlined),
+                onTap: _saving ? null : () => unawaited(_editName(profile)),
+              ),
+              ListTile(
+                key: const Key('settings-timezone'),
+                leading: const Icon(Icons.public_rounded),
+                title: const Text('Fuseau horaire'),
+                subtitle: Text(
+                  '${profile.timezone} · utilisé pour « aujourd’hui » dans '
+                  'vos statistiques',
                 ),
-                ListTile(
-                  key: const Key('settings-name'),
-                  leading: const Icon(Icons.badge_outlined),
-                  title: const Text('Nom d’affichage'),
-                  subtitle: Text(profile.displayName ?? 'Non renseigné'),
-                  trailing: const Icon(Icons.edit_outlined),
-                  onTap: _saving ? null : () => unawaited(_editName(profile)),
-                ),
-                ListTile(
-                  key: const Key('settings-timezone'),
-                  leading: const Icon(Icons.public_rounded),
-                  title: const Text('Fuseau horaire'),
-                  subtitle: Text(
-                    '${profile.timezone} · utilisé pour « aujourd’hui » dans '
-                    'vos statistiques',
-                  ),
-                  trailing: const Icon(Icons.edit_outlined),
-                  onTap: _saving
-                      ? null
-                      : () => unawaited(_editTimezone(profile)),
-                ),
-              ],
-            ),
-            const SectionHeader('Préférences'),
-            _Card(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Text('Palette', style: textTheme.titleSmall),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final palette in AppPalette.values)
-                      _PaletteChoice(
-                        key: Key('palette-${palette.storageValue}'),
-                        palette: palette,
-                        mode: profile.appearance.mode,
-                        selected: profile.appearance.palette == palette,
-                        onTap: _saving
-                            ? null
-                            : () => unawaited(
-                                _save(ProfileChanges(palette: palette)),
-                              ),
+                trailing: const Icon(Icons.edit_outlined),
+                onTap: _saving ? null : () => unawaited(_editTimezone(profile)),
+              ),
+            ],
+          ),
+          const SectionHeader('Préférences'),
+          _Card(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text('Palette', style: textTheme.titleSmall),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final palette in AppPalette.values)
+                    _PaletteChoice(
+                      key: Key('palette-${palette.storageValue}'),
+                      palette: palette,
+                      mode: profile.appearance.mode,
+                      selected: profile.appearance.palette == palette,
+                      onTap: _saving
+                          ? null
+                          : () => unawaited(
+                              _save(ProfileChanges(palette: palette)),
+                            ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text('Mode d’affichage', style: textTheme.titleSmall),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: SegmentedButton<AppThemeMode>(
+                  key: const Key('settings-mode'),
+                  showSelectedIcon: false,
+                  segments: [
+                    for (final mode in AppThemeMode.values)
+                      ButtonSegment(
+                        value: mode,
+                        label: Text(mode.label),
+                        icon: Icon(
+                          mode == AppThemeMode.dark
+                              ? Icons.dark_mode_outlined
+                              : Icons.light_mode_outlined,
+                        ),
                       ),
                   ],
-                ),
-                const SizedBox(height: 16),
-                Text('Mode d’affichage', style: textTheme.titleSmall),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: SegmentedButton<AppThemeMode>(
-                    key: const Key('settings-mode'),
-                    showSelectedIcon: false,
-                    segments: [
-                      for (final mode in AppThemeMode.values)
-                        ButtonSegment(
-                          value: mode,
-                          label: Text(mode.label),
-                          icon: Icon(
-                            mode == AppThemeMode.dark
-                                ? Icons.dark_mode_outlined
-                                : Icons.light_mode_outlined,
-                          ),
-                        ),
-                    ],
-                    selected: {profile.appearance.mode},
-                    onSelectionChanged: _saving
-                        ? null
-                        : (selection) => unawaited(
-                            _save(ProfileChanges(mode: selection.first)),
-                          ),
-                  ),
-                ),
-              ],
-            ),
-            const SectionHeader('Confidentialité'),
-            _Card(
-              children: [
-                SwitchListTile(
-                  key: const Key('settings-coach-access'),
-                  value: profile.coachDataAccess,
-                  onChanged: _saving
+                  selected: {profile.appearance.mode},
+                  onSelectionChanged: _saving
                       ? null
-                      : (value) => unawaited(
-                          _save(ProfileChanges(coachDataAccess: value)),
+                      : (selection) => unawaited(
+                          _save(ProfileChanges(mode: selection.first)),
                         ),
-                  title: const Text('Polomix peut consulter mes données'),
-                  subtitle: Text(
-                    'Pour chaque question, seuls les indicateurs concernés '
-                    '(valeurs, dates, statistiques) sont transmis au service '
-                    'Polomix, sans votre nom ni votre e-mail. Désactivé : '
-                    'Polomix répond sans connaître vos valeurs.',
-                    style: muted,
-                  ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-                  child: Text(
-                    'Vos données sont privées : chaque compte n’accède qu’à '
-                    'ses propres données, et Polomix ne peut jamais enregistrer, '
-                    'modifier ou supprimer une valeur.',
-                    style: muted,
-                  ),
-                ),
-              ],
-            ),
-            const SectionHeader('Connexions'),
-            _Card(
-              children: [
-                ListTile(
-                  key: const Key('settings-connections'),
-                  leading: const Icon(Icons.watch_outlined),
-                  title: const Text('Montres, Health Connect, services tiers'),
-                  subtitle: Text(
-                    'Disponible dans une prochaine version. Aucune connexion '
-                    'externe n’est active : vos données sont saisies '
-                    'manuellement.',
-                    style: muted,
-                  ),
-                ),
-              ],
-            ),
-            const SectionHeader('Gestion des données'),
-            _Card(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Text(
-                  overview == null
-                      ? 'Chargement du résumé…'
-                      : '${metricsLabel(metrics.tracked.length)} dans votre '
-                            'espace · ${countLabel(overview.daysRecorded, 'journée renseignée', 'journées renseignées')} · '
-                            '${countLabel(overview.entriesCount, 'saisie intégrée', 'saisies intégrées')}.',
-                  key: const Key('settings-data-summary'),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Pour corriger ou supprimer une journée, ouvrez la fiche de '
-                  'l’indicateur dans « Mes données ».',
+              ),
+            ],
+          ),
+          const SectionHeader('Confidentialité'),
+          _Card(
+            children: [
+              SwitchListTile(
+                key: const Key('settings-coach-access'),
+                value: profile.coachDataAccess,
+                onChanged: _saving
+                    ? null
+                    : (value) => unawaited(
+                        _save(ProfileChanges(coachDataAccess: value)),
+                      ),
+                title: const Text('Polomix peut consulter mes données'),
+                subtitle: Text(
+                  'Pour chaque question, seuls les indicateurs concernés '
+                  '(valeurs, dates, statistiques) sont transmis au service '
+                  'Polomix, sans votre nom ni votre e-mail. Désactivé : '
+                  'Polomix répond sans connaître vos valeurs.',
                   style: muted,
                 ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  key: const Key('settings-delete-all'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: colors.error,
-                    side: BorderSide(
-                      color: colors.error.withValues(alpha: 0.5),
-                    ),
-                  ),
-                  onPressed: _deleting || metrics.tracked.isEmpty
-                      ? null
-                      : () => unawaited(_deleteAll()),
-                  icon: const Icon(Icons.delete_forever_outlined),
-                  label: Text(
-                    _deleting
-                        ? 'Suppression…'
-                        : 'Supprimer toutes mes données de suivi',
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'La suppression du compte lui-même n’est pas encore '
-                  'disponible dans l’application.',
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+                child: Text(
+                  'Vos données sont privées : chaque compte n’accède qu’à '
+                  'ses propres données, et Polomix ne peut jamais enregistrer, '
+                  'modifier ou supprimer une valeur.',
                   style: muted,
                 ),
-              ],
-            ),
-            const SectionHeader('Polomix'),
-            PolomixStatusCard(repository: session.coach),
-            const SectionHeader('Compte'),
-            OutlinedButton.icon(
-              key: const Key('settings-sign-out'),
-              onPressed: () async {
-                try {
-                  await session.signOut();
-                } on Object {
-                  if (context.mounted) {
-                    showMessage(context, 'La déconnexion a échoué. Réessayez.');
-                  }
+              ),
+            ],
+          ),
+          const SectionHeader('Connexions'),
+          _Card(
+            children: [
+              ListTile(
+                key: const Key('settings-connections'),
+                leading: const Icon(Icons.watch_outlined),
+                title: const Text('Montres, Health Connect, services tiers'),
+                subtitle: Text(
+                  'Disponible dans une prochaine version. Aucune connexion '
+                  'externe n’est active : vos données sont saisies '
+                  'manuellement.',
+                  style: muted,
+                ),
+              ),
+            ],
+          ),
+          const SectionHeader('Gestion des données'),
+          _Card(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(
+                overview == null
+                    ? 'Chargement du résumé…'
+                    : '${metricsLabel(metrics.tracked.length)} dans votre '
+                          'espace · ${countLabel(overview.daysRecorded, 'journée renseignée', 'journées renseignées')} · '
+                          '${countLabel(overview.entriesCount, 'saisie intégrée', 'saisies intégrées')}.',
+                key: const Key('settings-data-summary'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Pour corriger ou supprimer une journée, ouvrez la fiche de '
+                'l’indicateur dans « Mes données ».',
+                style: muted,
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                key: const Key('settings-delete-all'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: colors.error,
+                  side: BorderSide(color: colors.error.withValues(alpha: 0.5)),
+                ),
+                onPressed: _deleting || metrics.tracked.isEmpty
+                    ? null
+                    : () => unawaited(_deleteAll()),
+                icon: const Icon(Icons.delete_forever_outlined),
+                label: Text(
+                  _deleting
+                      ? 'Suppression…'
+                      : 'Supprimer toutes mes données de suivi',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'La suppression du compte lui-même n’est pas encore '
+                'disponible dans l’application.',
+                style: muted,
+              ),
+            ],
+          ),
+          const SectionHeader('Polomix'),
+          PolomixStatusCard(repository: session.coach),
+          const SectionHeader('Compte'),
+          OutlinedButton.icon(
+            key: const Key('settings-sign-out'),
+            onPressed: () async {
+              try {
+                await session.signOut();
+              } on Object {
+                if (context.mounted) {
+                  showMessage(context, 'La déconnexion a échoué. Réessayez.');
                 }
-              },
-              icon: const Icon(Icons.logout_rounded),
-              label: const Text('Se déconnecter'),
-            ),
-            const SizedBox(height: 90),
-          ],
-        ),
+              }
+            },
+            icon: const Icon(Icons.logout_rounded),
+            label: const Text('Se déconnecter'),
+          ),
+        ],
       ),
     );
   }

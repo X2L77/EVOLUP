@@ -7,7 +7,7 @@ import '../../app/format/dates.dart';
 import '../../app/session/app_session.dart';
 import '../../app/session/revision_reload.dart';
 import '../../app/shell/app_destination.dart';
-import '../../app/widgets/evolup_background.dart';
+import '../../app/widgets/evolup_page.dart';
 import '../../app/widgets/glass_card.dart';
 import '../../app/widgets/state_views.dart';
 import '../../data/data_error.dart';
@@ -35,10 +35,14 @@ class _OverviewScreenState extends State<OverviewScreen> with RevisionReload {
   int _request = 0;
 
   @override
-  Future<void> reload() async {
+  Future<void> reload() => _load();
+
+  /// [refresh]: pull to refresh asks the server again even if the shared
+  /// overview is recent.
+  Future<void> _load({bool refresh = false}) async {
     final request = ++_request;
     try {
-      final overview = await metrics.repository.loadOverview();
+      final overview = await metrics.loadOverview(refresh: refresh);
       if (!mounted || request != _request) return;
       setState(() {
         _overview = overview;
@@ -71,50 +75,44 @@ class _OverviewScreenState extends State<OverviewScreen> with RevisionReload {
     final textTheme = Theme.of(context).textTheme;
     final name = session.profile.profile.displayName;
     final overview = _overview;
-    return EvolupBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          title: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              EvolupLogo(size: 28),
-              SizedBox(width: 12),
-              Flexible(
-                child: Text('Vue d’ensemble', overflow: TextOverflow.ellipsis),
-              ),
-            ],
+    return EvolupPage(
+      title: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          EvolupLogo(size: 28),
+          SizedBox(width: 12),
+          Flexible(
+            child: Text('Vue d’ensemble', overflow: TextOverflow.ellipsis),
           ),
-        ),
-        body: RefreshIndicator(
-          onRefresh: reload,
-          child: PageBody(
-            children: [
-              Text(
-                name == null ? 'Bonjour' : 'Bonjour, $name',
-                style: textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.5,
-                ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: () => _load(refresh: true),
+        child: PageBody(
+          children: [
+            Text(
+              name == null ? 'Bonjour' : 'Bonjour, $name',
+              style: textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Vos données, leur évolution, au même endroit.',
-                style: TextStyle(color: colors.textSecondary),
-              ),
-              const SizedBox(height: 16),
-              if (overview == null && _error == null)
-                const LoadingView()
-              else if (overview == null)
-                ErrorView(
-                  message: dataErrorMessage(_error!),
-                  onRetry: () => unawaited(reload()),
-                )
-              else
-                ..._content(context, session, overview),
-              const SizedBox(height: 90),
-            ],
-          ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Vos données, leur évolution, au même endroit.',
+              style: TextStyle(color: colors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            if (overview == null && _error == null)
+              const LoadingView()
+            else if (overview == null)
+              ErrorView(
+                message: dataErrorMessage(_error!),
+                onRetry: () => unawaited(reload()),
+              )
+            else
+              ..._content(context, session, overview),
+          ],
         ),
       ),
     );
@@ -125,10 +123,13 @@ class _OverviewScreenState extends State<OverviewScreen> with RevisionReload {
     SignedInSession session,
     Overview overview,
   ) {
+    // The list, active state and favourites come from the session's tracked
+    // metrics, always up to date; the overview only brings the recorded
+    // figures (none yet for a metric added since it was loaded).
     final active = [
-      for (final m in overview.metrics)
-        if (m.isActive)
-          if (metrics.definition(m.metricCatalogId) case final d?) (m, d),
+      for (final t in metrics.activeTracked)
+        if (metrics.definition(t.metricCatalogId) case final d?)
+          (overview.metricFor(t.id), t, d),
     ];
     if (active.isEmpty) {
       return [
@@ -152,30 +153,28 @@ class _OverviewScreenState extends State<OverviewScreen> with RevisionReload {
     }
     final favorites = [
       for (final e in active)
-        if (e.$1.isFavorite) e,
+        if (e.$2.isFavorite) e,
     ];
     final others = [
       for (final e in active)
-        if (!e.$1.isFavorite) e,
+        if (!e.$2.isFavorite) e,
     ];
 
-    Widget tile((OverviewMetric, MetricDefinition) entry) {
-      final (m, d) = entry;
-      final tracked = metrics.trackedById(m.trackedMetricId);
+    Widget tile((OverviewMetric?, TrackedMetric, MetricDefinition) entry) {
+      final (m, tracked, d) = entry;
+      final latest = m?.latest;
       return MetricTile(
         key: Key('overview-${d.slug}'),
         definition: d,
         categoryName: metrics.category(d.categoryId)?.name ?? '',
-        latest: m.latest,
+        latest: latest,
         today: overview.today,
-        favorite: m.isFavorite,
-        comparisonText: m.latest == null
+        favorite: tracked.isFavorite,
+        comparisonText: m == null || latest == null
             ? 'Aucune valeur enregistrée'
             : _comparison(d, m),
-        onTap: tracked == null
-            ? null
-            : () => unawaited(openMetricDetail(context, tracked)),
-        trailing: tracked == null || !d.isActive
+        onTap: () => unawaited(openMetricDetail(context, tracked)),
+        trailing: !d.isActive
             ? null
             : IconButton(
                 tooltip: 'Saisir une valeur',

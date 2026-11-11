@@ -108,6 +108,27 @@ class FakeMetricsRepository implements MetricsRepository {
   /// lost: the client sees [deleteAllError] although the server applied it.
   bool deleteAllAppliedBeforeError = false;
 
+  int statisticsLoads = 0;
+  int seriesLoads = 0;
+  int comparisonLoads = 0;
+
+  /// When set, statistics, series and comparisons are computed when called
+  /// and delivered once it completes (a late answer carries an older state).
+  Completer<void>? analysisGate;
+
+  /// Thrown by statistics, series and comparisons while set.
+  Object? analysisError;
+
+  /// Computes now, delivers once [analysisGate] (taken at call) completes.
+  Future<T> _analysis<T>(T Function() compute) async {
+    final gate = analysisGate;
+    final error = analysisError;
+    final result = error == null ? compute() : null;
+    await gate?.future;
+    if (error != null) throw error;
+    return result as T;
+  }
+
   MetricDefinition _definition(int id) => catalog.firstWhere((d) => d.id == id);
 
   /// Test setup: tracks [definition] directly.
@@ -394,7 +415,17 @@ class FakeMetricsRepository implements MetricsRepository {
     LocalDate from,
     LocalDate to, {
     SeriesBucket? bucket,
-  }) async {
+  }) {
+    seriesLoads++;
+    return _analysis(() => _series(trackedMetricId, from, to, bucket));
+  }
+
+  MetricSeries _series(
+    String trackedMetricId,
+    LocalDate from,
+    LocalDate to,
+    SeriesBucket? bucket,
+  ) {
     final d = _definitionOf(trackedMetricId);
     final span = to.daysSince(from);
     final used =
@@ -431,7 +462,16 @@ class FakeMetricsRepository implements MetricsRepository {
     String trackedMetricId,
     LocalDate from,
     LocalDate to,
-  ) async {
+  ) {
+    statisticsLoads++;
+    return _analysis(() => _statistics(trackedMetricId, from, to));
+  }
+
+  MetricStatistics _statistics(
+    String trackedMetricId,
+    LocalDate from,
+    LocalDate to,
+  ) {
     final d = _definitionOf(trackedMetricId);
     final all = (_days[trackedMetricId] ?? {}).entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
@@ -486,7 +526,26 @@ class FakeMetricsRepository implements MetricsRepository {
     required LocalDate referenceTo,
     required LocalDate comparedFrom,
     required LocalDate comparedTo,
-  }) async {
+  }) {
+    comparisonLoads++;
+    return _analysis(
+      () => _compare(
+        trackedMetricId,
+        referenceFrom,
+        referenceTo,
+        comparedFrom,
+        comparedTo,
+      ),
+    );
+  }
+
+  PeriodComparison _compare(
+    String trackedMetricId,
+    LocalDate referenceFrom,
+    LocalDate referenceTo,
+    LocalDate comparedFrom,
+    LocalDate comparedTo,
+  ) {
     final d = _definitionOf(trackedMetricId);
     final a = _summary(d, _range(trackedMetricId, referenceFrom, referenceTo));
     final b = _summary(d, _range(trackedMetricId, comparedFrom, comparedTo));

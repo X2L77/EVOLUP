@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/format/dates.dart';
 import '../../app/session/revision_reload.dart';
 import '../../app/widgets/confirm_dialog.dart';
-import '../../app/widgets/evolup_background.dart';
+import '../../app/widgets/evolup_page.dart';
 import '../../app/widgets/glass_card.dart';
 import '../../app/widgets/state_views.dart';
 import '../../app/widgets/status_message.dart';
@@ -52,7 +52,9 @@ class _MetricDetailScreenState extends State<MetricDetailScreen>
     try {
       final results = await Future.wait<Object>([
         repository.loadDays(widget.trackedMetricId, limit: _pageSize),
-        repository.loadOverview(),
+        // Only for the first recorded day (start of « Tout »): the overview
+        // shared by the pages, usually already loaded.
+        metrics.loadOverview(),
       ]);
       if (!mounted || request != _request) return;
       final days = results[0] as List<DailyValue>;
@@ -236,18 +238,14 @@ class _MetricDetailScreenState extends State<MetricDetailScreen>
         ? null
         : metrics.definition(tracked.metricCatalogId);
     if (tracked == null || definition == null) {
-      return EvolupBackground(
-        child: Scaffold(
-          backgroundColor: Colors.transparent,
-          appBar: AppBar(),
-          body: const Center(
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: EmptyState(
-                icon: Icons.delete_outline_rounded,
-                title: 'Indicateur supprimé',
-                message: 'Cet indicateur ne fait plus partie de vos données.',
-              ),
+      return const EvolupPage(
+        body: Center(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: EmptyState(
+              icon: Icons.delete_outline_rounded,
+              title: 'Indicateur supprimé',
+              message: 'Cet indicateur ne fait plus partie de vos données.',
             ),
           ),
         ),
@@ -257,175 +255,169 @@ class _MetricDetailScreenState extends State<MetricDetailScreen>
     final textTheme = Theme.of(context).textTheme;
     final category = metrics.category(definition.categoryId);
     final canRecord = tracked.isActive && definition.isActive;
-    return EvolupBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          actions: [
-            IconButton(
-              key: const Key('detail-favorite'),
-              tooltip: tracked.isFavorite
-                  ? 'Retirer des favoris'
-                  : 'Ajouter aux favoris',
-              icon: Icon(
-                tracked.isFavorite
-                    ? Icons.star_rounded
-                    : Icons.star_outline_rounded,
-                color: tracked.isFavorite ? colors.accent : null,
+    return EvolupPage(
+      actions: [
+        IconButton(
+          key: const Key('detail-favorite'),
+          tooltip: tracked.isFavorite
+              ? 'Retirer des favoris'
+              : 'Ajouter aux favoris',
+          icon: Icon(
+            tracked.isFavorite
+                ? Icons.star_rounded
+                : Icons.star_outline_rounded,
+            color: tracked.isFavorite ? colors.accent : null,
+          ),
+          onPressed: () => unawaited(
+            _run(
+              () => metrics.setFavorite(tracked, !tracked.isFavorite),
+              tracked.isFavorite
+                  ? 'Retiré des favoris.'
+                  : 'Ajouté aux favoris.',
+            ),
+          ),
+        ),
+        PopupMenuButton<String>(
+          key: const Key('detail-menu'),
+          tooltip: 'Plus d’actions',
+          onSelected: (action) => unawaited(_menu(action, definition, tracked)),
+          itemBuilder: (context) => [
+            if (tracked.isActive)
+              const PopupMenuItem(
+                value: 'deactivate',
+                child: Text('Retirer de ma liste'),
+              )
+            else if (definition.isActive)
+              const PopupMenuItem(
+                value: 'reactivate',
+                child: Text('Réactiver'),
               ),
+            const PopupMenuItem(
+              value: 'clear',
+              child: Text('Effacer l’historique'),
+            ),
+            const PopupMenuItem(
+              value: 'delete',
+              child: Text('Supprimer l’indicateur et son historique'),
+            ),
+          ],
+        ),
+      ],
+      body: PageBody(
+        children: [
+          Text(
+            definition.name,
+            key: const Key('detail-title'),
+            style: textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            [
+              category?.name ?? '',
+              if (!definition.isActive)
+                'retiré du catalogue'
+              else if (!tracked.isActive)
+                'retiré de ma liste',
+            ].where((s) => s.isNotEmpty).join(' · '),
+            style: TextStyle(color: colors.textSecondary),
+          ),
+          const SizedBox(height: 10),
+          Text(definition.description),
+          const SizedBox(height: 16),
+          if (canRecord)
+            FilledButton.icon(
+              key: const Key('detail-record'),
               onPressed: () => unawaited(
-                _run(
-                  () => metrics.setFavorite(tracked, !tracked.isFavorite),
-                  tracked.isFavorite
-                      ? 'Retiré des favoris.'
-                      : 'Ajouté aux favoris.',
+                openEntryForm(
+                  context,
+                  definition: definition,
+                  tracked: tracked,
                 ),
               ),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Saisir une valeur'),
+            )
+          else
+            StatusMessage(
+              message: definition.isActive
+                  ? 'Cet indicateur est retiré de votre liste : son '
+                        'historique reste consultable. Réactivez-le depuis '
+                        'le menu pour enregistrer une valeur.'
+                  : dataFailureMessage(DataFailure.metricRetired),
             ),
-            PopupMenuButton<String>(
-              key: const Key('detail-menu'),
-              tooltip: 'Plus d’actions',
-              onSelected: (action) =>
-                  unawaited(_menu(action, definition, tracked)),
-              itemBuilder: (context) => [
-                if (tracked.isActive)
-                  const PopupMenuItem(
-                    value: 'deactivate',
-                    child: Text('Retirer de ma liste'),
-                  )
-                else if (definition.isActive)
-                  const PopupMenuItem(
-                    value: 'reactivate',
-                    child: Text('Réactiver'),
-                  ),
-                const PopupMenuItem(
-                  value: 'clear',
-                  child: Text('Effacer l’historique'),
-                ),
-                const PopupMenuItem(
-                  value: 'delete',
-                  child: Text('Supprimer l’indicateur et son historique'),
-                ),
-              ],
-            ),
-          ],
-        ),
-        body: PageBody(
-          children: [
-            Text(
-              definition.name,
-              key: const Key('detail-title'),
-              style: textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              [
-                category?.name ?? '',
-                if (!definition.isActive)
-                  'retiré du catalogue'
-                else if (!tracked.isActive)
-                  'retiré de ma liste',
-              ].where((s) => s.isNotEmpty).join(' · '),
-              style: TextStyle(color: colors.textSecondary),
-            ),
-            const SizedBox(height: 10),
-            Text(definition.description),
-            const SizedBox(height: 16),
-            if (canRecord)
-              FilledButton.icon(
-                key: const Key('detail-record'),
-                onPressed: () => unawaited(
-                  openEntryForm(
-                    context,
-                    definition: definition,
-                    tracked: tracked,
-                  ),
-                ),
-                icon: const Icon(Icons.add_rounded),
-                label: const Text('Saisir une valeur'),
-              )
-            else
-              StatusMessage(
-                message: definition.isActive
-                    ? 'Cet indicateur est retiré de votre liste : son '
-                          'historique reste consultable. Réactivez-le depuis '
-                          'le menu pour enregistrer une valeur.'
-                    : dataFailureMessage(DataFailure.metricRetired),
-              ),
-            SectionHeader('Statistiques'),
-            PeriodSelector(
-              value: _period,
-              onChanged: (value) => setState(() => _period = value),
-            ),
-            const SizedBox(height: 12),
-            MetricAnalysis(
-              tracked: tracked,
-              definition: definition,
-              period: _period,
-              firstDate: _firstDate,
-            ),
-            SectionHeader('Journées enregistrées'),
-            if (_loadingDays)
-              const LoadingView()
-            else if (_daysError != null)
-              ErrorView(
-                message: dataErrorMessage(_daysError!),
-                onRetry: () => unawaited(reload()),
-              )
-            else if (_days.isEmpty)
-              const EmptyState(
-                icon: Icons.event_note_outlined,
-                title: 'Aucune journée enregistrée',
-                message:
-                    'Les valeurs que vous validerez apparaîtront ici, une '
-                    'ligne par journée.',
-              )
-            else
-              GlassCard(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Column(
-                  children: [
-                    for (final day in _days)
-                      ListTile(
-                        key: Key('day-${day.localDate.iso}'),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                        ),
-                        title: Text(
-                          formatValue(
-                            definition,
-                            day.value,
-                            aggregated: day.sampleCount > 1,
-                          ),
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        subtitle: Text(
-                          '${formatLongDate(day.localDate)}'
-                          '${day.sampleCount > 1 ? ' · ${definition.aggregation.dailyLabel} de ${entriesLabel(day.sampleCount)}' : ''}',
-                        ),
-                        trailing: const Icon(Icons.more_horiz_rounded),
-                        onTap: () =>
-                            unawaited(_dayActions(definition, tracked, day)),
+          SectionHeader('Statistiques'),
+          PeriodSelector(
+            value: _period,
+            onChanged: (value) => setState(() => _period = value),
+          ),
+          const SizedBox(height: 12),
+          MetricAnalysis(
+            tracked: tracked,
+            definition: definition,
+            period: _period,
+            firstDate: _firstDate,
+          ),
+          SectionHeader('Journées enregistrées'),
+          if (_loadingDays)
+            const LoadingView()
+          else if (_daysError != null)
+            ErrorView(
+              message: dataErrorMessage(_daysError!),
+              onRetry: () => unawaited(reload()),
+            )
+          else if (_days.isEmpty)
+            const EmptyState(
+              icon: Icons.event_note_outlined,
+              title: 'Aucune journée enregistrée',
+              message:
+                  'Les valeurs que vous validerez apparaîtront ici, une '
+                  'ligne par journée.',
+            )
+          else
+            GlassCard(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(
+                children: [
+                  for (final day in _days)
+                    ListTile(
+                      key: Key('day-${day.localDate.iso}'),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
                       ),
-                  ],
-                ),
+                      title: Text(
+                        formatValue(
+                          definition,
+                          day.value,
+                          aggregated: day.sampleCount > 1,
+                        ),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(
+                        '${formatLongDate(day.localDate)}'
+                        '${day.sampleCount > 1 ? ' · ${definition.aggregation.dailyLabel} de ${entriesLabel(day.sampleCount)}' : ''}',
+                      ),
+                      trailing: const Icon(Icons.more_horiz_rounded),
+                      onTap: () =>
+                          unawaited(_dayActions(definition, tracked, day)),
+                    ),
+                ],
               ),
-            if (_hasMore) ...[
-              const SizedBox(height: 10),
-              OutlinedButton(
-                key: const Key('days-more'),
-                onPressed: _loadingMore ? null : _loadMore,
-                child: Text(
-                  _loadingMore ? 'Chargement…' : 'Afficher plus de journées',
-                ),
+            ),
+          if (_hasMore) ...[
+            const SizedBox(height: 10),
+            OutlinedButton(
+              key: const Key('days-more'),
+              onPressed: _loadingMore ? null : _loadMore,
+              child: Text(
+                _loadingMore ? 'Chargement…' : 'Afficher plus de journées',
               ),
-            ],
-            const SizedBox(height: 20),
+            ),
           ],
-        ),
+          const SizedBox(height: 20),
+        ],
       ),
     );
   }

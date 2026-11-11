@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/session/app_session.dart';
 import '../../app/widgets/confirm_dialog.dart';
-import '../../app/widgets/evolup_background.dart';
+import '../../app/widgets/evolup_page.dart';
 import '../../app/widgets/glass_card.dart';
 import '../../app/widgets/status_message.dart';
 import '../../coach/coach_repository.dart';
@@ -188,99 +188,94 @@ class _CoachScreenState extends State<CoachScreen> {
     final messages = _chat.messages;
     final failure = _chat.failure;
     final consent = session.profile.profile.coachDataAccess;
-    return EvolupBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(
-          title: const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Polomix'),
-              Text(
-                'Votre analyste personnel',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
-              ),
-            ],
+    return EvolupPage(
+      title: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Polomix'),
+          Text(
+            'Votre analyste personnel',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w400),
           ),
-        ),
-        body: SafeArea(
-          top: false,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 760),
-              child: Column(
-                children: [
-                  // Hidden while typing: the conversation keeps the room.
-                  if (_chat.isAvailable &&
-                      !consent &&
-                      MediaQuery.viewInsetsOf(context).bottom == 0)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      child: _ConsentBanner(
-                        saving: _savingConsent,
-                        onAllow: () => unawaited(_allowDataAccess()),
-                      ),
-                    ),
-                  Expanded(
-                    child: messages.isEmpty && !_chat.isSending
-                        ? _EmptyState(available: _chat.isAvailable)
-                        : ListView.builder(
-                            key: const Key('coach-messages'),
-                            controller: _scroll,
-                            reverse: true,
-                            keyboardDismissBehavior:
-                                ScrollViewKeyboardDismissBehavior.onDrag,
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                            itemCount: _currentItemCount,
-                            itemBuilder: (context, index) {
-                              if (_chat.isSending) {
-                                if (index == 0) {
-                                  return const CoachPendingBubble(
-                                    key: Key('coach-pending'),
-                                  );
-                                }
-                                index -= 1;
-                              }
-                              return _item(
-                                context,
-                                messages[messages.length - 1 - index],
-                              );
-                            },
-                          ),
-                  ),
-                  if (failure != null)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          StatusMessage(
-                            key: const Key('coach-failure'),
-                            message: coachFailureMessage(failure),
-                            kind: StatusMessageKind.error,
-                          ),
-                          if (_chat.canRetry)
-                            TextButton.icon(
-                              key: const Key('coach-retry'),
-                              onPressed: () => unawaited(_chat.retry()),
-                              icon: const Icon(Icons.refresh_rounded),
-                              label: const Text('Réessayer'),
-                            ),
-                        ],
-                      ),
-                    ),
+        ],
+      ),
+      body: SafeArea(
+        top: false,
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: Column(
+              children: [
+                // Hidden while typing: the conversation keeps the room.
+                if (_chat.isAvailable &&
+                    !consent &&
+                    MediaQuery.viewInsetsOf(context).bottom == 0)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                    child: CoachComposer(
-                      controller: _input,
-                      focusNode: _focus,
-                      enabled: _chat.isAvailable,
-                      sending: _chat.isSending,
-                      onSend: _send,
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: _ConsentBanner(
+                      saving: _savingConsent,
+                      onAllow: () => unawaited(_allowDataAccess()),
                     ),
                   ),
-                ],
-              ),
+                Expanded(
+                  child: messages.isEmpty && !_chat.isSending
+                      ? _EmptyState(available: _chat.isAvailable)
+                      : ListView.builder(
+                          key: const Key('coach-messages'),
+                          controller: _scroll,
+                          reverse: true,
+                          keyboardDismissBehavior:
+                              ScrollViewKeyboardDismissBehavior.onDrag,
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                          itemCount: _currentItemCount,
+                          itemBuilder: (context, index) {
+                            if (_chat.isSending) {
+                              if (index == 0) {
+                                return const CoachPendingBubble(
+                                  key: Key('coach-pending'),
+                                );
+                              }
+                              index -= 1;
+                            }
+                            return _item(
+                              context,
+                              messages[messages.length - 1 - index],
+                            );
+                          },
+                        ),
+                ),
+                if (failure != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        StatusMessage(
+                          key: const Key('coach-failure'),
+                          message: coachFailureMessage(failure),
+                          kind: StatusMessageKind.error,
+                        ),
+                        if (_chat.canRetry)
+                          TextButton.icon(
+                            key: const Key('coach-retry'),
+                            onPressed: () => unawaited(_chat.retry()),
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Réessayer'),
+                          ),
+                      ],
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                  child: CoachComposer(
+                    controller: _input,
+                    focusNode: _focus,
+                    enabled: _chat.isAvailable,
+                    sending: _chat.isSending,
+                    onSend: _send,
+                  ),
+                ),
+              ],
             ),
           ),
         ),

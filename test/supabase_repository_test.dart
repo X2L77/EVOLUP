@@ -1,9 +1,7 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:my_training/data/data_error.dart';
 import 'package:my_training/data/data_request.dart';
 import 'package:my_training/data/local_date.dart';
@@ -11,52 +9,17 @@ import 'package:my_training/data/metrics/metric_models.dart';
 import 'package:my_training/data/metrics/metrics_repository.dart';
 import 'package:my_training/data/profile/profile_repository.dart';
 import 'package:my_training/data/profile/user_profile.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'support/supabase_test_server.dart';
 
 /// The real Supabase repositories against a fake HTTP server: no network,
 /// no Supabase project. Widget tests give a fake clock for the timeouts.
-const _userId = '11111111-1111-1111-1111-111111111111';
+const _userId = testUserId;
 
-class _Server {
-  _Server(this.handler);
+typedef _Server = SupabaseTestServer;
 
-  Future<http.Response> Function(http.Request request) handler;
-  final requests = <http.Request>[];
-
-  late final client = SupabaseClient(
-    'http://localhost:54321',
-    'publishable-test-key',
-    authOptions: const AuthClientOptions(autoRefreshToken: false),
-    httpClient: MockClient((request) async {
-      requests.add(request);
-      final response = await handler(request);
-      // postgrest reads the request back from the response, as with a
-      // real HTTP client.
-      return http.Response.bytes(
-        response.bodyBytes,
-        response.statusCode,
-        headers: response.headers,
-        request: request,
-      );
-    }),
-  );
-
-  /// Signs in locally (no request: the token is not a JWT, so it never
-  /// expires and is not refreshed).
-  Future<void> signIn() => client.auth.recoverSession(
-    jsonEncode({
-      'access_token': 'test-access-token',
-      'token_type': 'bearer',
-      'user': {'id': _userId},
-    }),
-  );
-}
-
-http.Response _json(Object body, [int status = 200]) => http.Response(
-  jsonEncode(body),
-  status,
-  headers: {'content-type': 'application/json'},
-);
+http.Response _json(Object body, [int status = 200]) =>
+    jsonResponse(body, status);
 
 final _entry = EntryRequest(
   trackedMetricId: 'um-1',
@@ -96,7 +59,18 @@ Future<Object?> _errorOf(
 void main() {
   group('T5 · timeouts on the real repository', () {
     testWidgets('a read answering in time succeeds', (tester) async {
-      final server = _Server((_) async => _json({'days_recorded': 3}));
+      // The shape of `get_overview` (a new user's day, no metric yet).
+      final server = _Server(
+        (_) async => _json({
+          'today': '2026-11-11',
+          'timezone': 'Europe/Paris',
+          'min_days': 3,
+          'days_recorded': 3,
+          'entries_count': 3,
+          'first_date': '2026-11-01',
+          'metrics': <Object>[],
+        }),
+      );
       final repository = SupabaseMetricsRepository(server.client);
       Overview? overview;
       unawaited(repository.loadOverview().then((o) => overview = o));

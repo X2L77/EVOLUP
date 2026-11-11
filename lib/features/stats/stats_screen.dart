@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import '../../app/session/app_session.dart';
 import '../../app/session/revision_reload.dart';
 import '../../app/shell/app_destination.dart';
-import '../../app/widgets/evolup_background.dart';
+import '../../app/widgets/evolup_page.dart';
 import '../../app/widgets/glass_card.dart';
 import '../../app/widgets/labeled_dropdown.dart';
 import '../../app/widgets/state_views.dart';
@@ -42,7 +42,7 @@ class _StatsScreenState extends State<StatsScreen> with RevisionReload {
     // Only the latest reload may update the page (older answers are late).
     final request = ++_request;
     try {
-      final overview = await metrics.repository.loadOverview();
+      final overview = await metrics.loadOverview();
       if (!mounted || request != _request) return;
       setState(() {
         _overview = overview;
@@ -57,24 +57,20 @@ class _StatsScreenState extends State<StatsScreen> with RevisionReload {
   Widget build(BuildContext context) {
     final session = SessionScope.of(context);
     final overview = _overview;
-    return EvolupBackground(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        appBar: AppBar(title: const Text('Statistiques')),
-        body: PageBody(
-          children: [
-            if (overview == null && _error == null)
-              const LoadingView()
-            else if (overview == null)
-              ErrorView(
-                message: dataErrorMessage(_error!),
-                onRetry: () => unawaited(reload()),
-              )
-            else
-              ..._content(context, session, overview),
-            const SizedBox(height: 90),
-          ],
-        ),
+    return EvolupPage(
+      title: const Text('Statistiques'),
+      body: PageBody(
+        children: [
+          if (overview == null && _error == null)
+            const LoadingView()
+          else if (overview == null)
+            ErrorView(
+              message: dataErrorMessage(_error!),
+              onRetry: () => unawaited(reload()),
+            )
+          else
+            ..._content(context, session, overview),
+        ],
       ),
     );
   }
