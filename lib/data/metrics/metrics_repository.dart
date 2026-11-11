@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../data_error.dart';
+import '../data_request.dart';
 import '../local_date.dart';
 import 'metric_models.dart';
 
@@ -9,6 +10,9 @@ import 'metric_models.dart';
 /// The user always comes from the Supabase session; RLS restricts every
 /// read and write to the user's own rows. Entries and corrections go through
 /// the database functions, which validate and aggregate them.
+///
+/// Every failure is a [DataException]; a write that may have been applied
+/// is reported as [DataFailure.writeUncertain].
 abstract interface class MetricsRepository {
   Future<List<MetricCategory>> loadCategories();
   Future<List<MetricDefinition>> loadCatalog();
@@ -24,6 +28,10 @@ abstract interface class MetricsRepository {
 
   /// Deletes a tracked metric and its whole history.
   Future<void> deleteTracked(String trackedMetricId);
+
+  /// Deletes every tracked metric of the user with their whole history, in
+  /// one statement: all of it or nothing. Returns how many were deleted.
+  Future<int> deleteAllTracked();
 
   Future<EntryResult> recordEntry(EntryRequest request);
 
@@ -85,49 +93,53 @@ class SupabaseMetricsRepository implements MetricsRepository {
   }
 
   @override
-  Future<List<MetricCategory>> loadCategories() async {
-    final rows = await _client
-        .from('metric_categories')
-        .select('id, slug, name, description, sort_order')
-        .order('sort_order');
-    return rows.map(MetricCategory.fromMap).toList();
-  }
+  Future<List<MetricCategory>> loadCategories() =>
+      guardRead('loadCategories', () async {
+        final rows = await _client
+            .from('metric_categories')
+            .select('id, slug, name, description, sort_order')
+            .order('sort_order');
+        return rows.map(MetricCategory.fromMap).toList();
+      });
 
   @override
-  Future<List<MetricDefinition>> loadCatalog() async {
-    final rows = await _client
-        .from('metric_catalog')
-        .select(_catalogColumns)
-        .order('sort_order');
-    return rows.map(MetricDefinition.fromMap).toList();
-  }
+  Future<List<MetricDefinition>> loadCatalog() =>
+      guardRead('loadCatalog', () async {
+        final rows = await _client
+            .from('metric_catalog')
+            .select(_catalogColumns)
+            .order('sort_order');
+        return rows.map(MetricDefinition.fromMap).toList();
+      });
 
   @override
-  Future<List<TrackedMetric>> loadTracked() async {
-    final rows = await _client
-        .from('user_metrics')
-        .select(_trackedColumns)
-        .eq('user_id', _userId)
-        .order('added_at');
-    return rows.map(TrackedMetric.fromMap).toList();
-  }
+  Future<List<TrackedMetric>> loadTracked() =>
+      guardRead('loadTracked', () async {
+        final rows = await _client
+            .from('user_metrics')
+            .select(_trackedColumns)
+            .eq('user_id', _userId)
+            .order('added_at');
+        return rows.map(TrackedMetric.fromMap).toList();
+      });
 
   @override
-  Future<TrackedMetric> track(int metricCatalogId) async {
-    final row = await _client
-        .from('user_metrics')
-        .insert({'user_id': _userId, 'metric_catalog_id': metricCatalogId})
-        .select(_trackedColumns)
-        .single();
-    return TrackedMetric.fromMap(row);
-  }
+  Future<TrackedMetric> track(int metricCatalogId) =>
+      guardWrite('track', () async {
+        final row = await _client
+            .from('user_metrics')
+            .insert({'user_id': _userId, 'metric_catalog_id': metricCatalogId})
+            .select(_trackedColumns)
+            .single();
+        return TrackedMetric.fromMap(row);
+      });
 
   @override
   Future<TrackedMetric> updateTracked(
     String trackedMetricId, {
     bool? isActive,
     bool? isFavorite,
-  }) async {
+  }) => guardWrite('updateTracked', () async {
     final row = await _client
         .from('user_metrics')
         .update({'is_active': ?isActive, 'is_favorite': ?isFavorite})
@@ -135,33 +147,52 @@ class SupabaseMetricsRepository implements MetricsRepository {
         .select(_trackedColumns)
         .single();
     return TrackedMetric.fromMap(row);
-  }
+  });
 
   @override
-  Future<void> deleteTracked(String trackedMetricId) async {
+  Future<void> deleteTracked(String trackedMetricId) =>
+      guardWrite('deleteTracked', () async {
+        final rows = await _client
+            .from('user_metrics')
+            .delete()
+            .eq('id', trackedMetricId)
+            .select('id');
+        if (rows.isEmpty) {
+          throw const DataException(DataFailure.metricNotTracked);
+        }
+      });
+
+  /// One PostgREST request is one SQL statement in one transaction: the
+  /// tracked metrics and, through the `on delete cascade` foreign key, their
+  /// daily aggregates are deleted together or not at all. RLS ("Users can
+  /// delete their tracked metrics") limits it to the user's own rows; the
+  /// explicit filter says so too. Profiles are not touched.
+  @override
+  Future<int> deleteAllTracked() => guardWrite('deleteAllTracked', () async {
     final rows = await _client
         .from('user_metrics')
         .delete()
-        .eq('id', trackedMetricId)
+        .eq('user_id', _userId)
         .select('id');
-    if (rows.isEmpty) throw const DataException(DataFailure.metricNotTracked);
-  }
+    return rows.length;
+  });
 
   @override
-  Future<EntryResult> recordEntry(EntryRequest request) async {
-    final data = await _client.rpc(
-      'record_metric_entry',
-      params: {
-        'p_user_metric_id': request.trackedMetricId,
-        'p_value': request.value,
-        'p_unit': request.unit,
-        'p_local_date': request.localDate.iso,
-        'p_timezone': request.timezone,
-        'p_idempotency_key': request.idempotencyKey,
-      },
-    );
-    return EntryResult.fromResponse(data);
-  }
+  Future<EntryResult> recordEntry(EntryRequest request) =>
+      guardWrite('recordEntry', () async {
+        final data = await _client.rpc(
+          'record_metric_entry',
+          params: {
+            'p_user_metric_id': request.trackedMetricId,
+            'p_value': request.value,
+            'p_unit': request.unit,
+            'p_local_date': request.localDate.iso,
+            'p_timezone': request.timezone,
+            'p_idempotency_key': request.idempotencyKey,
+          },
+        );
+        return EntryResult.fromResponse(data);
+      });
 
   @override
   Future<DailyValue> correctDay(
@@ -169,7 +200,7 @@ class SupabaseMetricsRepository implements MetricsRepository {
     LocalDate day,
     num storedValue,
     String unit,
-  ) async {
+  ) => guardWrite('correctDay', () async {
     final data = await _client.rpc(
       'correct_metric_day',
       params: {
@@ -183,33 +214,35 @@ class SupabaseMetricsRepository implements MetricsRepository {
       throw const DataException(DataFailure.badResponse);
     }
     return DailyValue.fromMap(Map<String, dynamic>.from(data['aggregate']));
-  }
+  });
 
   @override
-  Future<void> deleteDay(String trackedMetricId, LocalDate day) async {
-    final rows = await _client
-        .from('metric_daily_aggregates')
-        .delete()
-        .eq('user_metric_id', trackedMetricId)
-        .eq('local_date', day.iso)
-        .select('id');
-    if (rows.isEmpty) throw const DataException(DataFailure.dayNotFound);
-  }
+  Future<void> deleteDay(String trackedMetricId, LocalDate day) =>
+      guardWrite('deleteDay', () async {
+        final rows = await _client
+            .from('metric_daily_aggregates')
+            .delete()
+            .eq('user_metric_id', trackedMetricId)
+            .eq('local_date', day.iso)
+            .select('id');
+        if (rows.isEmpty) throw const DataException(DataFailure.dayNotFound);
+      });
 
   @override
-  Future<void> deleteHistory(String trackedMetricId) async {
-    await _client
-        .from('metric_daily_aggregates')
-        .delete()
-        .eq('user_metric_id', trackedMetricId);
-  }
+  Future<void> deleteHistory(String trackedMetricId) =>
+      guardWrite('deleteHistory', () async {
+        await _client
+            .from('metric_daily_aggregates')
+            .delete()
+            .eq('user_metric_id', trackedMetricId);
+      });
 
   @override
   Future<List<DailyValue>> loadDays(
     String trackedMetricId, {
     int limit = 30,
     int offset = 0,
-  }) async {
+  }) => guardRead('loadDays', () async {
     final rows = await _client
         .from('metric_daily_values')
         .select(
@@ -220,7 +253,7 @@ class SupabaseMetricsRepository implements MetricsRepository {
         .order('local_date', ascending: false)
         .range(offset, offset + limit - 1);
     return rows.map(DailyValue.fromMap).toList();
-  }
+  });
 
   @override
   Future<MetricSeries> loadSeries(
@@ -228,7 +261,7 @@ class SupabaseMetricsRepository implements MetricsRepository {
     LocalDate from,
     LocalDate to, {
     SeriesBucket? bucket,
-  }) async {
+  }) => guardRead('loadSeries', () async {
     final data = await _client.rpc(
       'get_metric_history',
       params: {
@@ -239,14 +272,14 @@ class SupabaseMetricsRepository implements MetricsRepository {
       },
     );
     return MetricSeries.fromRows(data, requested: bucket);
-  }
+  });
 
   @override
   Future<MetricStatistics> loadStatistics(
     String trackedMetricId,
     LocalDate from,
     LocalDate to,
-  ) async {
+  ) => guardRead('loadStatistics', () async {
     final data = await _client.rpc(
       'get_metric_statistics',
       params: {
@@ -257,7 +290,7 @@ class SupabaseMetricsRepository implements MetricsRepository {
     );
     if (data == null) throw const DataException(DataFailure.metricNotTracked);
     return MetricStatistics.fromResponse(data);
-  }
+  });
 
   @override
   Future<PeriodComparison> comparePeriods(
@@ -266,7 +299,7 @@ class SupabaseMetricsRepository implements MetricsRepository {
     required LocalDate referenceTo,
     required LocalDate comparedFrom,
     required LocalDate comparedTo,
-  }) async {
+  }) => guardRead('comparePeriods', () async {
     final data = await _client.rpc(
       'compare_metric_periods',
       params: {
@@ -279,16 +312,18 @@ class SupabaseMetricsRepository implements MetricsRepository {
     );
     if (data == null) throw const DataException(DataFailure.metricNotTracked);
     return PeriodComparison.fromResponse(data);
-  }
+  });
 
   @override
-  Future<Overview> loadOverview() async =>
-      Overview.fromResponse(await _client.rpc('get_overview'));
+  Future<Overview> loadOverview() => guardRead(
+    'loadOverview',
+    () async => Overview.fromResponse(await _client.rpc('get_overview')),
+  );
 
   @override
-  Future<List<String>> loadTimezones() async {
+  Future<List<String>> loadTimezones() => guardRead('loadTimezones', () async {
     final data = await _client.rpc('list_timezones');
-    if (data is! List) return const [];
+    if (data is! List) return const <String>[];
     return [
       for (final item in data)
         if (item is String)
@@ -296,5 +331,5 @@ class SupabaseMetricsRepository implements MetricsRepository {
         else if (item is Map && item.values.firstOrNull is String)
           item.values.first as String,
     ];
-  }
+  });
 }

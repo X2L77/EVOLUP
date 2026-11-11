@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:my_training/data/data_request.dart';
 import 'package:my_training/data/local_date.dart';
 import 'package:my_training/data/metrics/metric_models.dart';
 import 'package:my_training/data/metrics/metrics_repository.dart';
@@ -57,7 +58,9 @@ double? _aggregate(
 /// In-memory version of the EVOLUP tables and functions, with the same
 /// rules as the database (supabase/tests/db checks the real ones): one row
 /// per tracked metric and day, duplicate values and retried keys ignored,
-/// catalog bounds, no future date.
+/// catalog bounds, no future date. Entries, the global deletion and the
+/// overview go through the same guards (timeouts, error classification) as
+/// `SupabaseMetricsRepository`.
 class FakeMetricsRepository implements MetricsRepository {
   FakeMetricsRepository({
     this.categories = testCategories,
@@ -79,6 +82,31 @@ class FakeMetricsRepository implements MetricsRepository {
   /// When set, [recordEntry] waits for it.
   Completer<void>? recordGate;
   Object? loadError;
+
+  /// Thrown by [loadOverview] while set.
+  Object? overviewError;
+
+  /// When set, [loadOverview] waits for it.
+  Completer<void>? overviewGate;
+  int overviewLoads = 0;
+
+  int trackCalls = 0;
+
+  /// When set, [track] waits for it.
+  Completer<void>? trackGate;
+
+  int deleteTrackedCalls = 0;
+  int deleteAllCalls = 0;
+
+  /// Thrown by the next [deleteAllTracked] (then cleared), nothing deleted.
+  Object? deleteAllError;
+
+  /// When set, [deleteAllTracked] waits for it.
+  Completer<void>? deleteAllGate;
+
+  /// When true, [deleteAllTracked] deletes everything, then its answer is
+  /// lost: the client sees [deleteAllError] although the server applied it.
+  bool deleteAllAppliedBeforeError = false;
 
   MetricDefinition _definition(int id) => catalog.firstWhere((d) => d.id == id);
 
@@ -142,11 +170,24 @@ class FakeMetricsRepository implements MetricsRepository {
   @override
   Future<List<MetricDefinition>> loadCatalog() async => catalog;
 
+  /// When set, [loadTracked] answers once it completes, with the state read
+  /// when it was called (a read run by the server, delivered late).
+  Completer<void>? trackedGate;
+  int trackedLoads = 0;
+
   @override
-  Future<List<TrackedMetric>> loadTracked() async => List.of(tracked);
+  Future<List<TrackedMetric>> loadTracked() async {
+    trackedLoads++;
+    final snapshot = List.of(tracked);
+    final gate = trackedGate;
+    await gate?.future;
+    return snapshot;
+  }
 
   @override
   Future<TrackedMetric> track(int metricCatalogId) async {
+    trackCalls++;
+    await trackGate?.future;
     if (tracked.any((t) => t.metricCatalogId == metricCatalogId)) {
       throw _error('duplicate key', '23505');
     }
@@ -182,12 +223,36 @@ class FakeMetricsRepository implements MetricsRepository {
 
   @override
   Future<void> deleteTracked(String trackedMetricId) async {
+    deleteTrackedCalls++;
     tracked.removeWhere((t) => t.id == trackedMetricId);
     _days.remove(trackedMetricId);
   }
 
+  /// Like the single DELETE statement: everything or nothing.
   @override
-  Future<EntryResult> recordEntry(EntryRequest request) async {
+  Future<int> deleteAllTracked() => guardWrite('deleteAllTracked', () async {
+    deleteAllCalls++;
+    await deleteAllGate?.future;
+    final error = deleteAllError;
+    if (error != null && !deleteAllAppliedBeforeError) {
+      deleteAllError = null;
+      throw error;
+    }
+    final count = tracked.length;
+    tracked.clear();
+    _days.clear();
+    if (error != null) {
+      deleteAllError = null;
+      throw error;
+    }
+    return count;
+  });
+
+  @override
+  Future<EntryResult> recordEntry(EntryRequest request) =>
+      guardWrite('recordEntry', () => _recordEntry(request));
+
+  Future<EntryResult> _recordEntry(EntryRequest request) async {
     requests.add(request);
     await recordGate?.future;
     if (recordError case final error?) {
@@ -439,8 +504,21 @@ class FakeMetricsRepository implements MetricsRepository {
   }
 
   @override
-  Future<Overview> loadOverview() async {
+  Future<Overview> loadOverview() => guardRead('loadOverview', _loadOverview);
+
+  /// The overview is computed when called and delivered once
+  /// [overviewGate] completes (a late answer carries an older state).
+  Future<Overview> _loadOverview() async {
+    overviewLoads++;
+    final gate = overviewGate;
+    final overview = await _computeOverview();
+    await gate?.future;
+    return overview;
+  }
+
+  Future<Overview> _computeOverview() async {
     if (loadError case final error?) throw error;
+    if (overviewError case final error?) throw error;
     final metrics = <OverviewMetric>[];
     var entries = 0;
     final dates = <LocalDate>{};

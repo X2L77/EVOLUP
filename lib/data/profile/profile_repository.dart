@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../data_request.dart';
 import 'user_profile.dart';
 
 /// Profile of the signed-in user. The user always comes from the Supabase
@@ -25,8 +26,17 @@ class SupabaseProfileRepository implements ProfileRepository {
     return userId;
   }
 
+  /// Guarded as a read: creating the row is idempotent (upsert that ignores
+  /// an existing row), so retrying after any failure is always safe. The
+  /// bound covers its up to four requests.
   @override
-  Future<UserProfile> loadOrCreate({required String timezone}) async {
+  Future<UserProfile> loadOrCreate({required String timezone}) => guardRead(
+    'loadOrCreateProfile',
+    () => _loadOrCreate(timezone),
+    timeout: DataTimeouts.write,
+  );
+
+  Future<UserProfile> _loadOrCreate(String timezone) async {
     final userId = _userId;
     final existing = await _client
         .from(_table)
@@ -60,13 +70,14 @@ class SupabaseProfileRepository implements ProfileRepository {
       );
 
   @override
-  Future<UserProfile> update(ProfileChanges changes) async {
-    final row = await _client
-        .from(_table)
-        .update(changes.toMap())
-        .eq('user_id', _userId)
-        .select(_columns)
-        .single();
-    return UserProfile.fromMap(row);
-  }
+  Future<UserProfile> update(ProfileChanges changes) =>
+      guardWrite('updateProfile', () async {
+        final row = await _client
+            .from(_table)
+            .update(changes.toMap())
+            .eq('user_id', _userId)
+            .select(_columns)
+            .single();
+        return UserProfile.fromMap(row);
+      });
 }

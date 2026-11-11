@@ -35,18 +35,21 @@ class _StatsScreenState extends State<StatsScreen> with RevisionReload {
   String? _secondId;
   StatsPeriod _period = StatsPeriod.days90;
   SeriesBucket? _bucket;
+  int _request = 0;
 
   @override
   Future<void> reload() async {
+    // Only the latest reload may update the page (older answers are late).
+    final request = ++_request;
     try {
       final overview = await metrics.repository.loadOverview();
-      if (!mounted) return;
+      if (!mounted || request != _request) return;
       setState(() {
         _overview = overview;
         _error = null;
       });
     } on Object catch (error) {
-      if (mounted) setState(() => _error = error);
+      if (mounted && request == _request) setState(() => _error = error);
     }
   }
 
@@ -229,9 +232,11 @@ class _ComparisonChartsState extends State<_ComparisonCharts>
     with RevisionReload {
   (MetricSeries, MetricSeries)? _series;
   Object? _error;
+  int _request = 0;
 
   @override
   Future<void> reload() async {
+    final request = ++_request;
     try {
       final repository = metrics.repository;
       // Same grouping for both: the first series decides it in 'auto'.
@@ -247,9 +252,11 @@ class _ComparisonChartsState extends State<_ComparisonCharts>
         widget.to,
         bucket: widget.bucket ?? first.bucket,
       );
-      if (mounted) setState(() => _series = (first, second));
+      if (mounted && request == _request) {
+        setState(() => _series = (first, second));
+      }
     } on Object catch (error) {
-      if (mounted) setState(() => _error = error);
+      if (mounted && request == _request) setState(() => _error = error);
     }
   }
 

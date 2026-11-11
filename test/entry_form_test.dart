@@ -142,7 +142,9 @@ void main() {
       await tester.tap(submit);
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('entry-error')), findsOneWidget);
-      expect(find.textContaining('Rien n’a été enregistré'), findsOneWidget);
+      // The request may have reached the server: never "nothing saved".
+      expect(find.textContaining('Rien n’a été enregistré'), findsNothing);
+      expect(find.textContaining('peut-être été enregistrée'), findsOneWidget);
       expect(find.text('Valeur enregistrée'), findsNothing);
 
       await tester.tap(submit);

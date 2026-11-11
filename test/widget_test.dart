@@ -492,7 +492,9 @@ void main() {
       await pumpApp(tester, TestWorld(auth: auth, profiles: profiles));
 
       expect(find.byKey(const Key('session-error')), findsOneWidget);
-      expect(find.textContaining('Connexion impossible'), findsOneWidget);
+      // A timeout while loading: said as such, never "nothing saved".
+      expect(find.textContaining('trop de temps à répondre'), findsOneWidget);
+      expect(find.textContaining('enregistré'), findsNothing);
       expect(find.byType(OverviewScreen), findsNothing);
 
       profiles.loadError = null;

@@ -382,3 +382,93 @@ describe('schema hardening', () => {
       assert.ok(durations.every((r) => r.storage_unit === 'second'));
     }));
 });
+
+// The app deletes all tracking data with one PostgREST request,
+// `DELETE /user_metrics?user_id=eq.<me>`: one statement in one transaction
+// (lot 2, T4). No migration: these tests check the existing rules.
+describe('deleting all tracking data', () => {
+  /** Alice tracks two metrics with history; Bob one. Acts as Alice. */
+  async function twoUsers(c) {
+    const alice = await createUser(c, 'alice@test.local');
+    const bob = await createUser(c, 'bob@test.local');
+    const bobMetric = await track(c, bob, 'tractions');
+    await record(c, bobMetric, 5);
+    const tractions = await track(c, alice, 'tractions');
+    await record(c, tractions, 8, { date: '2026-11-01' });
+    await record(c, tractions, 9, { date: '2026-11-02' });
+    const pompes = await track(c, alice, 'pompes');
+    await record(c, pompes, 20);
+    await c.query("insert into public.profiles (timezone) values ('Europe/Paris')");
+    return { alice, bob, bobMetric, tractions, pompes };
+  }
+
+  async function count(c, sql, params = []) {
+    return (await c.query(`select count(*)::int as n from ${sql}`, params)).rows[0].n;
+  }
+
+  test('one statement deletes every tracked metric and its history, only the user\'s', () =>
+    inRollback(pool, async (c) => {
+      const { alice, bob, bobMetric } = await twoUsers(c);
+      const deleted = await c.query(
+        'delete from public.user_metrics where user_id = $1 returning id',
+        [alice],
+      );
+      assert.equal(deleted.rowCount, 2);
+      assert.equal(await count(c, 'public.user_metrics'), 0);
+      assert.equal(await count(c, 'public.metric_daily_aggregates'), 0);
+      // The profile is kept.
+      assert.equal(await count(c, 'public.profiles'), 1);
+      await asOwner(c);
+      assert.equal(
+        await count(c, 'public.metric_daily_aggregates where user_id = $1', [alice]),
+        0,
+      );
+      assert.equal(await count(c, 'public.user_metrics where user_id = $1', [bob]), 1);
+      assert.equal(
+        await count(c, 'public.metric_daily_aggregates where user_metric_id = $1', [bobMetric]),
+        1,
+      );
+    }));
+
+  test('another user\'s id in the filter deletes nothing', () =>
+    inRollback(pool, async (c) => {
+      const { alice, bob } = await twoUsers(c);
+      await asUser(c, bob);
+      const deleted = await c.query('delete from public.user_metrics where user_id = $1', [alice]);
+      assert.equal(deleted.rowCount, 0);
+      await asOwner(c);
+      assert.equal(await count(c, 'public.user_metrics where user_id = $1', [alice]), 2);
+      assert.equal(await count(c, 'public.metric_daily_aggregates where user_id = $1', [alice]), 3);
+    }));
+
+  test('a failure in the middle of the cascade leaves everything in place', () =>
+    inRollback(pool, async (c) => {
+      const { alice, pompes } = await twoUsers(c);
+      // Test-only trigger (rolled back with the transaction): the cascade
+      // fails on one metric's history, whatever was already deleted by the
+      // same statement before it.
+      await asOwner(c);
+      await c.query(`
+        create function public.test_fail_on_delete() returns trigger
+        language plpgsql as $$
+        begin
+          if old.user_metric_id = '${pompes}' then
+            raise exception 'simulated failure';
+          end if;
+          return old;
+        end;
+        $$`);
+      await c.query(`
+        create trigger test_fail_on_delete before delete
+        on public.metric_daily_aggregates
+        for each row execute function public.test_fail_on_delete()`);
+      await asUser(c, alice);
+      await inSavepoint(c, () =>
+        expectPgError(
+          c.query('delete from public.user_metrics where user_id = $1', [alice]),
+          { message: 'simulated failure' },
+        ));
+      assert.equal(await count(c, 'public.user_metrics'), 2);
+      assert.equal(await count(c, 'public.metric_daily_aggregates'), 3);
+    }));
+});

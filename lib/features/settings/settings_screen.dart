@@ -30,12 +30,18 @@ class _SettingsScreenState extends State<SettingsScreen> with RevisionReload {
   Overview? _overview;
   bool _saving = false;
   bool _deleting = false;
+  int _request = 0;
 
   @override
   Future<void> reload() async {
+    // Only the latest reload may update the page: an older answer arriving
+    // last would show older counts.
+    final request = ++_request;
     try {
       final overview = await metrics.repository.loadOverview();
-      if (mounted) setState(() => _overview = overview);
+      if (mounted && request == _request) {
+        setState(() => _overview = overview);
+      }
     } on Object {
       // Counts are informative; the settings stay usable without them.
     }
@@ -96,12 +102,11 @@ class _SettingsScreenState extends State<SettingsScreen> with RevisionReload {
       confirmLabel: 'Tout supprimer',
       destructive: true,
     );
-    if (!confirmed || !mounted) return;
+    if (!confirmed || !mounted || _deleting) return;
     setState(() => _deleting = true);
     try {
-      for (final tracked in List.of(metrics.tracked)) {
-        await metrics.deleteTracked(tracked);
-      }
+      // One atomic request: everything is deleted, or nothing.
+      await metrics.deleteAllTracked();
       if (mounted) {
         showMessage(context, 'Vos données de suivi sont supprimées.');
       }

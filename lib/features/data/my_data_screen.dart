@@ -30,12 +30,17 @@ class _MyDataScreenState extends State<MyDataScreen> with RevisionReload {
   final _search = TextEditingController();
   int? _categoryId;
   Overview? _overview;
+  int _request = 0;
 
   @override
   Future<void> reload() async {
+    // Only the latest reload may update the page (older answers are late).
+    final request = ++_request;
     try {
       final overview = await metrics.repository.loadOverview();
-      if (mounted) setState(() => _overview = overview);
+      if (mounted && request == _request) {
+        setState(() => _overview = overview);
+      }
     } on Object {
       // Latest values are a convenience here; the lists stay usable.
     }

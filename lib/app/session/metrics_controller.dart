@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
+import '../../data/data_error.dart';
 import '../../data/local_date.dart';
 import '../../data/metrics/metric_models.dart';
 import '../../data/metrics/metrics_repository.dart';
@@ -9,6 +12,12 @@ import '../../data/metrics/metrics_repository.dart';
 ///
 /// [revision] increases whenever recorded data changes (entry, correction,
 /// deletion), so pages showing data know they must reload.
+///
+/// A write whose outcome is uncertain ([DataFailure.writeUncertain]) is never
+/// assumed cancelled: the tracked metrics are read again at once, and once
+/// more when the abandoned request ends ([DataException.settled]), since the
+/// server may apply it after the first read. A read is applied only if no
+/// newer change of the list happened while it ran.
 class MetricsController extends ChangeNotifier {
   MetricsController(this.repository);
 
@@ -16,8 +25,19 @@ class MetricsController extends ChangeNotifier {
   List<MetricCategory> _categories = const [];
   List<MetricDefinition> _catalog = const [];
   List<TrackedMetric> _tracked = const [];
+
+  /// Increases at each local change of [_tracked] (load, confirmed write):
+  /// a re-read that started before it brings an older state.
+  int _localChanges = 0;
+
+  /// Re-reads are numbered when they start; only one started after the
+  /// last applied one may replace the list.
+  int _readTicket = 0;
+  int _appliedTicket = 0;
   int _revision = 0;
   bool _disposed = false;
+  final _pendingTracks = <int, Future<TrackedMetric>>{};
+  Future<void>? _pendingDeleteAll;
 
   List<MetricCategory> get categories => _categories;
   List<MetricDefinition> get catalog => _catalog;
@@ -35,7 +55,7 @@ class MetricsController extends ChangeNotifier {
     // by category first keeps the catalog from mixing categories.
     _catalog = (results[1] as List<MetricDefinition>).toList()
       ..sort(_compareDefinitions);
-    _tracked = results[2] as List<TrackedMetric>;
+    _setTracked(results[2] as List<TrackedMetric>);
     _notify();
   }
 
@@ -90,13 +110,22 @@ class MetricsController extends ChangeNotifier {
       });
 
   /// Adds [metric] to the user's space, or reactivates it if it was removed.
-  Future<TrackedMetric> track(MetricDefinition metric) async {
+  /// A second call while the first is running (double tap) shares its
+  /// request and result.
+  Future<TrackedMetric> track(MetricDefinition metric) =>
+      _pendingTracks[metric.id] ??= _track(metric).whenComplete(() {
+        // Block body: returning the removed future would make whenComplete
+        // wait for itself.
+        _pendingTracks.remove(metric.id);
+      });
+
+  Future<TrackedMetric> _track(MetricDefinition metric) async {
     final existing = trackedFor(metric.id);
     if (existing != null) {
       return existing.isActive ? existing : setActive(existing, true);
     }
-    final added = await repository.track(metric.id);
-    _tracked = [..._tracked, added];
+    final added = await _write(() => repository.track(metric.id));
+    _setTracked([..._tracked, added]);
     _notify();
     return added;
   }
@@ -116,24 +145,38 @@ class MetricsController extends ChangeNotifier {
     TrackedMetric metric,
     Future<TrackedMetric> Function() call,
   ) async {
-    final updated = await call();
-    _tracked = [for (final t in _tracked) t.id == metric.id ? updated : t];
+    final updated = await _write(call);
+    _setTracked([for (final t in _tracked) t.id == metric.id ? updated : t]);
     _notify();
     return updated;
   }
 
   /// Deletes the metric from the user's space with its whole history.
   Future<void> deleteTracked(TrackedMetric metric) async {
-    await repository.deleteTracked(metric.id);
-    _tracked = [
+    await _write(() => repository.deleteTracked(metric.id));
+    _setTracked([
       for (final t in _tracked)
         if (t.id != metric.id) t,
-    ];
+    ]);
+    _dataChanged();
+  }
+
+  /// Deletes every tracked metric with its whole history in one atomic
+  /// request, then notifies the pages once. Nothing changes locally if it
+  /// fails. A second call while it runs shares the same request.
+  Future<void> deleteAllTracked() =>
+      _pendingDeleteAll ??= _deleteAll().whenComplete(() {
+        _pendingDeleteAll = null;
+      });
+
+  Future<void> _deleteAll() async {
+    await _write(repository.deleteAllTracked);
+    _setTracked(const []);
     _dataChanged();
   }
 
   Future<EntryResult> record(EntryRequest request) async {
-    final result = await repository.recordEntry(request);
+    final result = await _write(() => repository.recordEntry(request));
     if (result.status == EntryStatus.recorded) _dataChanged();
     return result;
   }
@@ -145,24 +188,67 @@ class MetricsController extends ChangeNotifier {
   ) async {
     final definition = this.definition(metric.metricCatalogId);
     if (definition == null) throw StateError('Unknown metric');
-    final value = await repository.correctDay(
-      metric.id,
-      day,
-      storedValue,
-      definition.storageUnit,
+    final value = await _write(
+      () => repository.correctDay(
+        metric.id,
+        day,
+        storedValue,
+        definition.storageUnit,
+      ),
     );
     _dataChanged();
     return value;
   }
 
   Future<void> deleteDay(TrackedMetric metric, LocalDate day) async {
-    await repository.deleteDay(metric.id, day);
+    await _write(() => repository.deleteDay(metric.id, day));
     _dataChanged();
   }
 
   Future<void> deleteHistory(TrackedMetric metric) async {
-    await repository.deleteHistory(metric.id);
+    await _write(() => repository.deleteHistory(metric.id));
     _dataChanged();
+  }
+
+  Future<T> _write<T>(Future<T> Function() call) async {
+    try {
+      return await call();
+    } on Object catch (error) {
+      if (classifyDataError(error) == DataFailure.writeUncertain) {
+        unawaited(_resync());
+        if (error case DataException(:final settled?)) {
+          // The server may still apply it: read again once it is done.
+          unawaited(settled.then((_) => _resync()));
+        }
+      }
+      rethrow;
+    }
+  }
+
+  /// After a write whose outcome is unknown: reads the tracked metrics again
+  /// and makes every page reload its data. A read overtaken by a newer
+  /// change (a local write, or a later re-read that finished first) is
+  /// dropped instead of bringing an older state back.
+  Future<void> _resync() async {
+    final ticket = ++_readTicket;
+    final localChanges = _localChanges;
+    try {
+      final tracked = await repository.loadTracked();
+      if (_disposed) return;
+      if (ticket > _appliedTicket && localChanges == _localChanges) {
+        _appliedTicket = ticket;
+        _tracked = tracked;
+      }
+    } on Object {
+      // Still unreachable: pages reload, and show their own error if any.
+    }
+    if (!_disposed) _dataChanged();
+  }
+
+  /// A local change of the list: overtakes the re-reads still running.
+  void _setTracked(List<TrackedMetric> tracked) {
+    _tracked = tracked;
+    _localChanges++;
   }
 
   void _dataChanged() {
