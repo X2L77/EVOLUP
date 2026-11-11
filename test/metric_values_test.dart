@@ -1,8 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:my_training/app/format/dates.dart';
 import 'package:my_training/data/local_date.dart';
 import 'package:my_training/data/metrics/metric_models.dart';
 import 'package:my_training/data/metrics/metric_values.dart';
 import 'package:my_training/features/data/metric_search.dart';
+import 'package:my_training/features/metrics/metric_texts.dart';
 
 import 'support/test_catalog.dart';
 
@@ -117,9 +119,75 @@ void main() {
       expect(formatDifference(sommeil, 1800), '+30${nbsp}min');
     });
 
+    test('only averages get an extra decimal, not totals', () {
+      // course_distance: whole meters shown in km with 2 decimals, summed.
+      expect(
+        formatValue(courseDistance, 50086, aggregated: true),
+        '50,09${nbsp}km',
+      );
+      expect(formatValue(courseDistance, 50086), '50,09${nbsp}km');
+      expect(formatDifference(courseDistance, 1234), '+1,23${nbsp}km');
+      // A total divided by recorded days is an average.
+      expect(formatAverage(courseDistance, 50086), '50,086${nbsp}km');
+      // tractions: averaged metric, the extra decimal stays.
+      expect(formatDifference(tractions, -0.5), '−0,5${nbsp}rép.');
+      expect(formatAverage(tractions, 25 / 3), '8,3${nbsp}rép.');
+      // Durations are never affected.
+      expect(formatAverage(sommeil, 27000), '7${nbsp}h 30');
+    });
+
     test('bounds are described in display units', () {
       expect(boundsHint(courseDistance), 'Entre 0,01${nbsp}km et 300${nbsp}km');
       expect(boundsHint(humeur), 'Entre 1/10 et 10/10');
+    });
+  });
+
+  group('French dates', () {
+    test('the first day of the month is written "1er"', () {
+      final first = LocalDate(2026, 10, 1);
+      expect(formatDate(first), '1er octobre 2026');
+      expect(formatLongDate(first), 'jeudi 1er octobre 2026');
+      expect(formatShortDate(first), '1er oct.');
+      expect(formatShortDate(first, withYear: true), '1er oct. 2026');
+      expect(
+        formatRelativeDay(first, LocalDate(2026, 11, 9)),
+        'le 1er octobre 2026',
+      );
+      expect(
+        formatBucket(first, SeriesBucket.week, long: true),
+        'semaine du 1er octobre 2026',
+      );
+      expect(
+        formatBucket(first, SeriesBucket.month, long: true),
+        'octobre 2026',
+      );
+    });
+
+    test('other days keep their number', () {
+      expect(formatDate(LocalDate(2026, 11, 9)), '9 novembre 2026');
+      expect(formatDate(LocalDate(2026, 10, 11)), '11 octobre 2026');
+      expect(formatDate(LocalDate(2026, 10, 21)), '21 octobre 2026');
+      expect(formatShortDate(LocalDate(2026, 10, 31)), '31 oct.');
+    });
+  });
+
+  group('French plurals', () {
+    test('singular for 0 and 1, plural from 2', () {
+      expect(metricsLabel(0), '0 indicateur');
+      expect(metricsLabel(1), '1 indicateur');
+      expect(metricsLabel(3), '3 indicateurs');
+      expect(entriesLabel(1), '1 saisie');
+      expect(entriesLabel(2), '2 saisies');
+      expect(daysLabel(0), '0 journée');
+      expect(daysLabel(12), '12 journées');
+      expect(
+        pluralize(1, 'indicateur suivi', 'indicateurs suivis'),
+        'indicateur suivi',
+      );
+      expect(
+        pluralize(2, 'indicateur suivi', 'indicateurs suivis'),
+        'indicateurs suivis',
+      );
     });
   });
 

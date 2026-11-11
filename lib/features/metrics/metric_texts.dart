@@ -17,11 +17,23 @@ const duplicateRule =
     'Une valeur identique déjà saisie le même jour n’est pas comptée deux '
     'fois.';
 
+/// [singular] for 0 and 1, [plural] from 2 (French rule).
+String pluralize(int count, String singular, String plural) =>
+    count > 1 ? plural : singular;
+
+/// "0 indicateur", "1 indicateur", "3 indicateurs".
+String countLabel(int count, String singular, String plural) =>
+    '$count ${pluralize(count, singular, plural)}';
+
 /// "1 saisie", "3 saisies".
-String entriesLabel(int count) => '$count saisie${count > 1 ? 's' : ''}';
+String entriesLabel(int count) => countLabel(count, 'saisie', 'saisies');
 
 /// "1 journée", "12 journées".
-String daysLabel(int count) => '$count journée${count > 1 ? 's' : ''}';
+String daysLabel(int count) => countLabel(count, 'journée', 'journées');
+
+/// "1 indicateur", "3 indicateurs".
+String metricsLabel(int count) =>
+    countLabel(count, 'indicateur', 'indicateurs');
 
 String recordLabel(MetricDefinition metric) =>
     metric.recordDirection == RecordDirection.lower

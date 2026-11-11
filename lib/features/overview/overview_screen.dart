@@ -275,19 +275,25 @@ class _Summary extends StatelessWidget {
             children: [
               figure(
                 '$activeCount',
-                activeCount > 1 ? 'indicateurs suivis' : 'indicateur suivi',
+                pluralize(
+                  activeCount,
+                  'indicateur suivi',
+                  'indicateurs suivis',
+                ),
                 const Key('summary-tracked'),
               ),
               figure(
                 '${overview.daysRecorded}',
-                overview.daysRecorded > 1
-                    ? 'journées renseignées'
-                    : 'journée renseignée',
+                pluralize(
+                  overview.daysRecorded,
+                  'journée renseignée',
+                  'journées renseignées',
+                ),
                 const Key('summary-days'),
               ),
               figure(
                 '${overview.entriesCount}',
-                overview.entriesCount > 1 ? 'saisies' : 'saisie',
+                pluralize(overview.entriesCount, 'saisie', 'saisies'),
                 const Key('summary-entries'),
               ),
             ],

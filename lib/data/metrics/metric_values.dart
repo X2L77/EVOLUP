@@ -172,16 +172,36 @@ String inputText(MetricDefinition metric, num stored) {
   return text.replaceAll('.', ',');
 }
 
-/// A value of [metric] in French with its unit. [aggregated] values (an
-/// average, for example) get one more decimal than typed values.
+/// A value of [metric] in French with its unit.
+///
+/// [aggregated] values combine several entries with the metric's
+/// aggregation: only an average gets one more decimal than typed values; a
+/// total, maximum, minimum or last value keeps the typed precision.
 String formatValue(
   MetricDefinition metric,
   num stored, {
   bool aggregated = false,
   bool withUnit = true,
+}) => _formatValue(
+  metric,
+  stored,
+  extraDecimal: aggregated && metric.aggregation == MetricAggregation.average,
+  withUnit: withUnit,
+);
+
+/// A value that is always an average whatever the metric's aggregation (a
+/// total divided by recorded days): one more decimal than typed values.
+String formatAverage(MetricDefinition metric, num stored) =>
+    _formatValue(metric, stored, extraDecimal: true);
+
+String _formatValue(
+  MetricDefinition metric,
+  num stored, {
+  required bool extraDecimal,
+  bool withUnit = true,
 }) {
   if (metric.isDuration) return formatDuration(stored, metric.durationFields);
-  final decimals = metric.displayDecimals + (aggregated ? 1 : 0);
+  final decimals = metric.displayDecimals + (extraDecimal ? 1 : 0);
   final number = formatNumber(
     stored / metric.displayFactor,
     decimals: decimals,

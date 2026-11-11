@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_training/app/session/app_session.dart';
+import 'package:my_training/app/session/metrics_controller.dart';
 import 'package:my_training/data/data_error.dart';
+import 'package:my_training/data/metrics/metric_models.dart';
 import 'package:my_training/features/data/my_data_screen.dart';
 import 'package:my_training/features/metrics/metric_detail_screen.dart';
 
@@ -9,7 +11,74 @@ import 'support/fake_metrics_repository.dart';
 import 'support/test_catalog.dart';
 import 'support/test_helpers.dart';
 
+/// The catalog as Supabase serves it (`order('sort_order')`): sort orders
+/// are numbered inside each category, so categories come mixed.
+const servedCatalog = [
+  tractions, // sport 10
+  concentration, // concentration 10
+  sommeil, // sommeil 10
+  pompes, // sport 20
+  humeur, // développement personnel 20
+  courseDistance, // sport 30
+  course5km, // sport 40
+  gainage, // sport 90 (retired)
+];
+
+/// Category order, then the order inside each category.
+const groupedSlugs = [
+  'tractions',
+  'pompes',
+  'course_distance',
+  'course_5km',
+  'gainage',
+  'concentration_duree',
+  'sommeil_duree',
+  'humeur',
+];
+
 void main() {
+  group('catalog order', () {
+    test(
+      'the catalog is grouped by category, then by order inside it',
+      () async {
+        final controller = MetricsController(
+          FakeMetricsRepository(catalog: servedCatalog),
+        );
+        await controller.load();
+        expect(controller.catalog.map((d) => d.slug), groupedSlugs);
+        expect(
+          controller.untrackedActive.map((d) => d.slug),
+          groupedSlugs.where((s) => s != 'gainage'),
+        );
+      },
+    );
+
+    test('tracked metrics: favourites first, then the same order', () async {
+      final controller = MetricsController(
+        FakeMetricsRepository(catalog: servedCatalog),
+      );
+      await controller.load();
+      for (final d in [humeur, sommeil, pompes, concentration, tractions]) {
+        await controller.track(d);
+      }
+      await controller.setFavorite(controller.trackedFor(sommeil.id)!, true);
+      await controller.setActive(controller.trackedFor(pompes.id)!, false);
+      String slug(TrackedMetric t) =>
+          controller.definition(t.metricCatalogId)!.slug;
+      expect(controller.activeTracked.map(slug), [
+        'sommeil_duree',
+        'tractions',
+        'concentration_duree',
+        'humeur',
+      ]);
+      expect(controller.inactiveTracked.map(slug), ['pompes']);
+      expect(controller.untrackedActive.map((d) => d.slug), [
+        'course_distance',
+        'course_5km',
+      ]);
+    });
+  });
+
   Future<SignedInSession> pumpData(
     WidgetTester tester,
     FakeMetricsRepository metrics,
@@ -44,6 +113,32 @@ void main() {
     await tester.enterText(find.byKey(const Key('data-search')), '');
     await tapKey(tester, 'category-developpement_personnel');
     expect(find.byKey(const Key('catalog-humeur')), findsOneWidget);
+    expect(find.byKey(const Key('catalog-tractions')), findsNothing);
+  });
+
+  testWidgets('the catalog screen lists metrics grouped by category', (
+    tester,
+  ) async {
+    await pumpData(tester, FakeMetricsRepository(catalog: servedCatalog));
+    double top(String slug) => tester
+        .getTopLeft(find.byKey(Key('catalog-$slug'), skipOffstage: false))
+        .dy;
+    final shown = groupedSlugs.where((s) => s != 'gainage').toList();
+    final tops = shown.map(top).toList();
+    expect(tops, [...tops]..sort());
+
+    // The category filter and the search still apply to the sorted list.
+    await tapKey(tester, 'category-sport');
+    for (final slug in ['tractions', 'pompes', 'course_distance']) {
+      expect(
+        find.byKey(Key('catalog-$slug'), skipOffstage: false),
+        findsOneWidget,
+      );
+    }
+    expect(find.byKey(const Key('catalog-humeur')), findsNothing);
+    await tester.enterText(find.byKey(const Key('data-search')), 'course');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('catalog-course_distance')), findsOneWidget);
     expect(find.byKey(const Key('catalog-tractions')), findsNothing);
   });
 

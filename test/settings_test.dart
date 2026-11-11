@@ -128,6 +128,41 @@ void main() {
     expect(find.byKey(const Key('polomix-probe')), findsNothing);
   });
 
+  testWidgets('the data summary uses French plurals, not "(s)"', (
+    tester,
+  ) async {
+    String summary() => tester
+        .widget<Text>(
+          find.byKey(const Key('settings-data-summary'), skipOffstage: false),
+        )
+        .data!;
+
+    final metrics = FakeMetricsRepository();
+    metrics.seed(metrics.addTracked(tractions), 8);
+    metrics.addTracked(sommeil);
+    await pumpSettings(tester, metrics: metrics);
+    expect(
+      summary(),
+      '2 indicateurs dans votre espace · 1 journée renseignée · '
+      '1 saisie intégrée.',
+    );
+  });
+
+  testWidgets('the data summary is singular when nothing is tracked', (
+    tester,
+  ) async {
+    await pumpSettings(tester);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const Key('settings-data-summary'), skipOffstage: false),
+          )
+          .data,
+      '0 indicateur dans votre espace · 0 journée renseignée · '
+      '0 saisie intégrée.',
+    );
+  });
+
   testWidgets('all tracking data can be deleted after confirmation', (
     tester,
   ) async {

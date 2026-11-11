@@ -381,9 +381,12 @@ ThemeData buildEvolupTheme([EvolupColors colors = EvolupColors.brand]) {
         borderRadius: BorderRadius.circular(14),
         borderSide: BorderSide(color: color, width: width),
       );
-  final typography = colors.isDark
-      ? Typography.material2021().white
-      : Typography.material2021().black;
+  final material = Typography.material2021();
+  // `white` and `black` only carry colors and font family: sizes come from
+  // the geometry theme, which ThemeData adds to `textTheme` but not to the
+  // styles given to component themes.
+  final typography = colors.isDark ? material.white : material.black;
+  final geometry = material.englishLike;
   final dialogSurface = colors.isDark
       ? Color.alphaBlend(const Color(0x14FFFFFF), colors.background)
       : Colors.white;
@@ -404,10 +407,9 @@ ThemeData buildEvolupTheme([EvolupColors colors = EvolupColors.brand]) {
       foregroundColor: colors.textPrimary,
       elevation: 0,
       titleSpacing: 20,
-      titleTextStyle: typography.titleLarge?.copyWith(
-        color: colors.textPrimary,
-        fontWeight: FontWeight.w700,
-      ),
+      titleTextStyle: geometry.titleLarge
+          ?.merge(typography.titleLarge)
+          .copyWith(color: colors.textPrimary, fontWeight: FontWeight.w700),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,

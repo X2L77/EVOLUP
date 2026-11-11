@@ -41,17 +41,20 @@ const _weekdays = [
   'dimanche',
 ];
 
-/// "9 novembre 2026".
+/// Day of the month in French: "1er" for the first day, "9" otherwise.
+String _day(LocalDate date) => date.day == 1 ? '1er' : '${date.day}';
+
+/// "9 novembre 2026", "1er octobre 2026".
 String formatDate(LocalDate date) =>
-    '${date.day} ${_months[date.month - 1]} ${date.year}';
+    '${_day(date)} ${_months[date.month - 1]} ${date.year}';
 
 /// "lundi 9 novembre 2026".
 String formatLongDate(LocalDate date) =>
     '${_weekdays[date.weekday - 1]} ${formatDate(date)}';
 
-/// "9 nov." (with the year when [withYear]).
+/// "9 nov.", "1er oct." (with the year when [withYear]).
 String formatShortDate(LocalDate date, {bool withYear = false}) =>
-    '${date.day} ${_shortMonths[date.month - 1]}'
+    '${_day(date)} ${_shortMonths[date.month - 1]}'
     '${withYear ? ' ${date.year}' : ''}';
 
 /// "nov. 2026".

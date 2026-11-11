@@ -190,7 +190,7 @@ class _MetricAnalysisState extends State<MetricAnalysis> {
       if (period.perDayAverage != null)
         _Figure(
           label: 'Par journée enregistrée',
-          value: formatValue(d, period.perDayAverage!, aggregated: true),
+          value: formatAverage(d, period.perDayAverage!),
         ),
       _Figure(
         key: const Key('figure-days'),

@@ -12,6 +12,7 @@ import '../../data/data_error.dart';
 import '../../data/metrics/metric_models.dart';
 import '../../data/profile/user_profile.dart';
 import '../../theme/evolup_theme.dart';
+import '../metrics/metric_texts.dart';
 import 'polomix_status_card.dart';
 import 'timezone_picker.dart';
 
@@ -271,10 +272,9 @@ class _SettingsScreenState extends State<SettingsScreen> with RevisionReload {
                 Text(
                   overview == null
                       ? 'Chargement du résumé…'
-                      : '${metrics.tracked.length} indicateur(s) dans votre '
-                            'espace · ${overview.daysRecorded} journée(s) '
-                            'renseignée(s) · ${overview.entriesCount} '
-                            'saisie(s) intégrée(s).',
+                      : '${metricsLabel(metrics.tracked.length)} dans votre '
+                            'espace · ${countLabel(overview.daysRecorded, 'journée renseignée', 'journées renseignées')} · '
+                            '${countLabel(overview.entriesCount, 'saisie intégrée', 'saisies intégrées')}.',
                   key: const Key('settings-data-summary'),
                 ),
                 const SizedBox(height: 8),

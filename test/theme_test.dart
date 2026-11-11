@@ -66,6 +66,45 @@ void main() {
     }
   });
 
+  test('app bar titles keep the Material title size in every theme', () {
+    final themes = [
+      (EvolupColors.brand, 'brand'),
+      for (final palette in AppPalette.values)
+        for (final mode in AppThemeMode.values)
+          (
+            EvolupColors.resolve(AppAppearance(palette: palette, mode: mode)),
+            '${palette.name}/${mode.name}',
+          ),
+    ];
+    for (final (colors, label) in themes) {
+      final style = buildEvolupTheme(colors).appBarTheme.titleTextStyle!;
+      expect(style.fontSize, 22, reason: label);
+      expect(style.height, isNotNull, reason: label);
+      expect(style.color, colors.textPrimary, reason: label);
+      expect(style.fontWeight, FontWeight.w700, reason: label);
+    }
+  });
+
+  testWidgets('an app bar title is rendered at 22 px, not 14 px', (
+    tester,
+  ) async {
+    for (final mode in AppThemeMode.values) {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildEvolupTheme(
+            EvolupColors.resolve(AppAppearance(mode: mode)),
+          ),
+          home: Scaffold(appBar: AppBar(title: const Text('Mes données'))),
+        ),
+      );
+      final style = DefaultTextStyle.of(
+        tester.element(find.text('Mes données')),
+      ).style;
+      expect(style.fontSize, 22, reason: mode.name);
+      expect(style.fontWeight, FontWeight.w700, reason: mode.name);
+    }
+  });
+
   test('the sign-in identity stays the EVOLUP night blue', () {
     expect(EvolupColors.brand.background, EvolupBrand.background);
     expect(EvolupColors.brand.isDark, isTrue);

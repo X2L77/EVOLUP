@@ -31,9 +31,23 @@ class MetricsController extends ChangeNotifier {
       repository.loadTracked(),
     ]);
     _categories = results[0] as List<MetricCategory>;
-    _catalog = results[1] as List<MetricDefinition>;
+    // `metric_catalog.sort_order` is numbered inside each category: grouping
+    // by category first keeps the catalog from mixing categories.
+    _catalog = (results[1] as List<MetricDefinition>).toList()
+      ..sort(_compareDefinitions);
     _tracked = results[2] as List<TrackedMetric>;
     _notify();
+  }
+
+  /// Catalog order: category order, then the metric's order inside it.
+  int _compareDefinitions(MetricDefinition? a, MetricDefinition? b) {
+    int categoryOrder(MetricDefinition? d) =>
+        (d == null ? null : category(d.categoryId))?.sortOrder ?? 0;
+    final byCategory = categoryOrder(a).compareTo(categoryOrder(b));
+    if (byCategory != 0) return byCategory;
+    final byMetric = (a?.sortOrder ?? 0).compareTo(b?.sortOrder ?? 0);
+    if (byMetric != 0) return byMetric;
+    return (a?.id ?? 0).compareTo(b?.id ?? 0);
   }
 
   MetricCategory? category(int id) =>
@@ -66,18 +80,14 @@ class MetricsController extends ChangeNotifier {
       if (d.isActive && trackedFor(d.id) == null) d,
   ];
 
-  List<TrackedMetric> _sorted(Iterable<TrackedMetric> metrics) {
-    int order(TrackedMetric t) {
-      final d = definition(t.metricCatalogId);
-      final c = d == null ? null : category(d.categoryId);
-      return (c?.sortOrder ?? 0) * 1000 + (d?.sortOrder ?? 0);
-    }
-
-    return metrics.toList()..sort((a, b) {
-      if (a.isFavorite != b.isFavorite) return a.isFavorite ? -1 : 1;
-      return order(a).compareTo(order(b));
-    });
-  }
+  List<TrackedMetric> _sorted(Iterable<TrackedMetric> metrics) =>
+      metrics.toList()..sort((a, b) {
+        if (a.isFavorite != b.isFavorite) return a.isFavorite ? -1 : 1;
+        return _compareDefinitions(
+          definition(a.metricCatalogId),
+          definition(b.metricCatalogId),
+        );
+      });
 
   /// Adds [metric] to the user's space, or reactivates it if it was removed.
   Future<TrackedMetric> track(MetricDefinition metric) async {
