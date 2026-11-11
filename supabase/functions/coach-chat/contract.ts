@@ -1,8 +1,9 @@
 // Request contract between the EVOLUP app and this function.
 //
-// Every request is an envelope with a `kind`. Only `chat` exists today. Future
-// structured tasks (see README.md) will get their own kind, validated by a
-// server-side registry: the model never chooses which data is read.
+// Every request is an envelope with a `kind`:
+//   chat    a message to Polomix (answer, or form to open);
+//   status  whether the coach is configured (no call to Polomix);
+//   probe   compatibility test with Polomix (one short real call).
 
 /** Same limit as `coachMaxMessageLength` in the Flutter app. */
 export const MAX_MESSAGE_LENGTH = 2000;
@@ -10,7 +11,10 @@ export const MAX_MESSAGE_LENGTH = 2000;
 /** Upper bound of a request body, far above a maximal chat message. */
 export const MAX_BODY_BYTES = 16 * 1024;
 
-export type CoachRequest = { kind: 'chat'; message: string };
+export type CoachRequest =
+  | { kind: 'chat'; message: string }
+  | { kind: 'status' }
+  | { kind: 'probe' };
 
 export type RequestError =
   | 'invalid_request'
@@ -27,6 +31,9 @@ export function parseCoachRequest(body: unknown): ParsedRequest {
     return { ok: false, error: 'invalid_request' };
   }
   const { kind, message } = body as Record<string, unknown>;
+  if (kind === 'status' || kind === 'probe') {
+    return { ok: true, request: { kind } };
+  }
   if (kind !== 'chat') {
     return {
       ok: false,

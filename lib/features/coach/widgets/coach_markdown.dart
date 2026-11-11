@@ -4,8 +4,8 @@ import 'package:markdown/markdown.dart' as md;
 
 import '../../../theme/evolup_theme.dart';
 
-/// A coach reply rendered from Markdown (bold, italic, headings, lists,
-/// quotes, code) in the EVOLUP dark style, selectable as a whole.
+/// A Polomix reply rendered from Markdown (bold, italic, headings, lists,
+/// quotes, code) in the current EVOLUP palette, selectable as a whole.
 ///
 /// The reply comes from an AI model, so nothing in it is fetched or opened:
 /// images only show their alternative text, links are plain text, and raw
@@ -22,13 +22,13 @@ class CoachMarkdown extends StatelessWidget {
       softLineBreak: true,
       blockSyntaxes: const [_HtmlBlockAsText()],
       styleSheet: coachMarkdownStyle(Theme.of(context)),
-      imageBuilder: (uri, title, alt) =>
-          Text(alt ?? title ?? '', style: const TextStyle(color: _secondary)),
+      imageBuilder: (uri, title, alt) => Text(
+        alt ?? title ?? '',
+        style: TextStyle(color: EvolupColors.of(context).textSecondary),
+      ),
     ),
   );
 }
-
-const _secondary = EvolupColors.textSecondary;
 
 /// Shows an HTML block of the reply as plain text in its own paragraph,
 /// instead of silently dropping it (inline HTML already stays as text).
@@ -43,8 +43,9 @@ class _HtmlBlockAsText extends md.HtmlBlockSyntax {
 /// Markdown styles matching the chat bubbles: same body text as before,
 /// headings a little larger than the body, discreet code and quotes.
 MarkdownStyleSheet coachMarkdownStyle(ThemeData theme) {
+  final colors = theme.extension<EvolupColors>() ?? EvolupColors.brand;
   final body = (theme.textTheme.bodyLarge ?? const TextStyle(fontSize: 16))
-      .copyWith(color: EvolupColors.textPrimary);
+      .copyWith(color: colors.textPrimary);
   final size = body.fontSize ?? 16;
   TextStyle heading(double scale) => body.copyWith(
     fontSize: size * scale,
@@ -52,8 +53,8 @@ MarkdownStyleSheet coachMarkdownStyle(ThemeData theme) {
     height: 1.3,
   );
   final panel = BoxDecoration(
-    color: EvolupColors.fieldFill,
-    border: Border.all(color: EvolupColors.glassBorder),
+    color: colors.fieldFill,
+    border: Border.all(color: colors.glassBorder),
     borderRadius: BorderRadius.circular(10),
   );
   return MarkdownStyleSheet.fromTheme(theme).copyWith(
@@ -78,20 +79,20 @@ MarkdownStyleSheet coachMarkdownStyle(ThemeData theme) {
     code: body.copyWith(
       fontFamily: 'monospace',
       fontSize: size * 0.875,
-      backgroundColor: EvolupColors.fieldFill,
+      backgroundColor: colors.fieldFill,
     ),
     codeblockPadding: const EdgeInsets.all(10),
     codeblockDecoration: panel,
-    blockquote: body.copyWith(color: _secondary),
+    blockquote: body.copyWith(color: colors.textSecondary),
     blockquotePadding: const EdgeInsets.only(left: 12),
-    blockquoteDecoration: const BoxDecoration(
-      border: Border(left: BorderSide(color: EvolupColors.focus, width: 3)),
+    blockquoteDecoration: BoxDecoration(
+      border: Border(left: BorderSide(color: colors.accent, width: 3)),
     ),
-    horizontalRuleDecoration: const BoxDecoration(
-      border: Border(top: BorderSide(color: EvolupColors.glassBorder)),
+    horizontalRuleDecoration: BoxDecoration(
+      border: Border(top: BorderSide(color: colors.glassBorder)),
     ),
     tableHead: const TextStyle(fontWeight: FontWeight.w700),
     tableBody: body,
-    tableBorder: TableBorder.all(color: EvolupColors.glassBorder),
+    tableBorder: TableBorder.all(color: colors.glassBorder),
   );
 }

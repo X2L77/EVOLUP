@@ -5,7 +5,6 @@ import 'package:my_training/coach/coach_error.dart';
 import 'package:my_training/coach/coach_repository.dart';
 import 'package:my_training/features/coach/coach_screen.dart';
 import 'package:my_training/features/coach/widgets/coach_message_bubble.dart';
-import 'package:my_training/theme/evolup_theme.dart';
 
 import 'support/fake_coach_repository.dart';
 import 'support/test_helpers.dart';
@@ -15,16 +14,12 @@ void main() {
     WidgetTester tester,
     CoachRepository? repository, {
     Size size = const Size(400, 800),
-  }) async {
-    useSurfaceSize(tester, size);
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildEvolupBrandTheme(),
-        home: CoachScreen(repository: repository),
-      ),
-    );
-    await tester.pumpAndSettle();
-  }
+  }) => pumpInSession(
+    tester,
+    const CoachScreen(),
+    world: TestWorld(coach: repository),
+    size: size,
+  );
 
   final input = find.byKey(const Key('coach-input'));
   final sendButton = find.byKey(const Key('coach-send'));
@@ -40,8 +35,12 @@ void main() {
   testWidgets('starts with an honest empty state', (tester) async {
     await pumpCoach(tester, FakeCoachRepository());
     expect(find.text('Posez votre question'), findsOneWidget);
-    expect(find.textContaining('Polomix'), findsOneWidget);
+    expect(
+      find.textContaining('Je viens de faire 8 tractions'),
+      findsOneWidget,
+    );
     expect(find.textContaining('n’est pas conservée'), findsOneWidget);
+    expect(find.textContaining('Rien n’est enregistré'), findsOneWidget);
     expect(find.byType(CoachMessageBubble), findsNothing);
     expect(sendEnabled(tester), isFalse);
 
@@ -92,7 +91,7 @@ void main() {
     repository.fail(const CoachException(CoachFailure.timeout));
     await tester.pumpAndSettle();
     expect(
-      find.text('Le coach a mis trop de temps à répondre.'),
+      find.text('Polomix a mis trop de temps à répondre.'),
       findsOneWidget,
     );
     expect(find.byType(CoachMessageBubble), findsOneWidget);
@@ -120,7 +119,7 @@ void main() {
     await tester.tap(sendButton);
     await tester.pumpAndSettle();
     expect(
-      find.text('Le coach IA n’est pas encore activé. Réessayez plus tard.'),
+      find.textContaining('Polomix n’est pas encore activé'),
       findsOneWidget,
     );
     expect(find.byKey(const Key('coach-retry')), findsNothing);
@@ -205,7 +204,7 @@ void main() {
     tester,
   ) async {
     await pumpCoach(tester, null);
-    expect(find.text('Coach indisponible'), findsOneWidget);
+    expect(find.text('Polomix indisponible'), findsOneWidget);
     expect(tester.widget<TextField>(input).enabled, isFalse);
     expect(sendEnabled(tester), isFalse);
   });

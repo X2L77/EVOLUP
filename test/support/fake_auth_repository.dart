@@ -10,6 +10,8 @@ class FakeAuthRepository implements AuthRepository {
 
   @override
   String? currentUserId;
+  @override
+  String? currentEmail = 'athlete@evolup.fr';
   final changes = StreamController<String?>.broadcast(sync: true);
   final recoveryChanges = StreamController<void>.broadcast(sync: true);
   final failures = StreamController<AuthFailure>.broadcast(sync: true);

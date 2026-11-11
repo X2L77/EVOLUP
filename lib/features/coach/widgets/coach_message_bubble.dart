@@ -23,7 +23,7 @@ class CoachMessageBubble extends StatelessWidget {
       child: Semantics(
         container: true,
         liveRegion: !fromUser,
-        label: fromUser ? 'Vous' : 'Coach IA',
+        label: fromUser ? 'Vous' : 'Polomix',
         child: fromUser
             ? Text(message.text, style: Theme.of(context).textTheme.bodyLarge)
             : CoachMarkdown(message.text),
@@ -45,13 +45,13 @@ class CoachPendingBubble extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const ButtonSpinner(color: EvolupColors.focus),
+          ButtonSpinner(color: EvolupColors.of(context).accent),
           const SizedBox(width: 10),
           Text(
             'Réponse en cours…',
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: EvolupColors.textSecondary),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: EvolupColors.of(context).textSecondary,
+            ),
           ),
         ],
       ),
@@ -67,6 +67,7 @@ class _Bubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = EvolupColors.of(context);
     const round = Radius.circular(18);
     const tail = Radius.circular(6);
     final maxWidth = math.min(MediaQuery.sizeOf(context).width * 0.82, 560.0);
@@ -78,13 +79,11 @@ class _Bubble extends StatelessWidget {
           constraints: BoxConstraints(maxWidth: maxWidth),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: fromUser
-                  ? EvolupColors.navSelected
-                  : EvolupColors.glassFillTop,
+              color: fromUser ? colors.navSelected : colors.glassFillTop,
               border: Border.all(
                 color: fromUser
-                    ? EvolupColors.focus.withValues(alpha: 0.35)
-                    : EvolupColors.glassBorder,
+                    ? colors.accent.withValues(alpha: 0.35)
+                    : colors.glassBorder,
               ),
               borderRadius: BorderRadius.only(
                 topLeft: round,

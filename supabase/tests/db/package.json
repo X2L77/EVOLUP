@@ -1,0 +1,13 @@
+{
+  "name": "evolup-db-tests",
+  "private": true,
+  "type": "module",
+  "description": "Tests of the EVOLUP Supabase migrations on a local PostgreSQL 17 (no Docker, no remote project).",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "devDependencies": {
+    "embedded-postgres": "17.11.0-beta.19",
+    "pg": "8.23.1"
+  }
+}

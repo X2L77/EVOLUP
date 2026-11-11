@@ -10,6 +10,9 @@ import 'social_auth_provider.dart';
 
 abstract interface class AuthRepository {
   String? get currentUserId;
+
+  /// Email address of the signed-in user, shown in the settings.
+  String? get currentEmail;
   Stream<String?> get userIdChanges;
   Stream<void> get passwordRecoveryEvents;
 
@@ -58,6 +61,9 @@ class SupabaseAuthRepository implements AuthRepository {
 
   @override
   String? get currentUserId => _client.auth.currentUser?.id;
+
+  @override
+  String? get currentEmail => _client.auth.currentUser?.email;
 
   @override
   Stream<String?> get userIdChanges => _client.auth.onAuthStateChange

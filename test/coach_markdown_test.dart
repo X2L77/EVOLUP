@@ -12,7 +12,7 @@ void main() {
   }) async {
     await tester.pumpWidget(
       MaterialApp(
-        theme: buildEvolupBrandTheme(),
+        theme: buildEvolupTheme(),
         home: Scaffold(
           body: ListView(
             children: [
@@ -179,6 +179,6 @@ void main() {
       ),
       findsOneWidget,
     );
-    expect(styleOf(tester, 'Réponse ').color, EvolupColors.textPrimary);
+    expect(styleOf(tester, 'Réponse ').color, EvolupColors.brand.textPrimary);
   });
 }

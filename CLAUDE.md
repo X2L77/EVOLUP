@@ -1,51 +1,131 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
 ## Project
 
-EVOLUP is a Flutter app (Dart package name `my_training`, so imports are `package:my_training/...`) for a personal sports progression journey. Implemented so far: the build-guide sign-in screen (Supabase email/password, email-code sign-up, Google/Apple OAuth enabled only when configured in Supabase), the one-question-per-screen initial questionnaire saved to `public.athlete_profiles`, a home screen showing the saved profile, a floating navigation bar (Coach IA · Home · Statistiques), and a temporary Coach IA chat answered by Polomix through the `coach-chat` Edge Function (deployed 2026-10-25 with the `POLOMIX_API_KEY` secret; deployed version 2 required an `<answer>` block the model only partly follows, and the local code went back to the documented `reply` field, not deployed yet). Workouts, stats, quests, social features, colour themes (V1.1.0), coach history, coach access to profile data and structured AI tasks are not implemented: Statistiques is an honest "bientôt disponible" page and the home coach card an "unavailable" state, so never generate fake analysis, programs, data or coach replies. User-facing strings are in French.
+EVOLUP is a Flutter app (Dart package `my_training`, imports
+`package:my_training/...`): a **personal data platform**. Each user picks
+metrics from a catalog controlled by EVOLUP (sport, concentration, discipline,
+sleep, learning, productivity, personal development), records values by hand,
+and analyses their evolution; Polomix (an external AI behind a Supabase Edge
+Function) answers questions on that data and can prepare an entry form. Five
+sections: Vue d'ensemble · Mes données · Statistiques · Polomix · Paramètres.
+User-facing strings are in French.
 
-## Cahier des charges & règles du projet (à lire avant toute tâche)
+## Rules (read `SPEC_PROJECT.md` before any task)
 
-- **`SPEC_PROJECT.md` est le cahier des charges vivant.** Le lire avant toute tâche, y consigner chaque décision validée (journal des décisions) et garder les points non tranchés marqués **[Ouvert]**. Il est **incomplet** : seul le « Guide de construction #1 » (sections 0–1, copie dans `../Guide_de_construcion_#1.md`) et les décisions du questionnaire (§2) ont été reçus ; le second cahier des charges, le « cahier des charges initial » et la capture de référence visuelle manquent (ne jamais prétendre avoir vu cette capture).
-- **Ne coder que ce qui est spécifié** (guide + décisions du journal). Une fonctionnalité seulement nommée (programme, séances, records, score, quêtes, EXP…) n'est pas spécifiée : la définir avec le propriétaire avant de l'implémenter. Aucun ajout de périmètre ni de question non validée.
-- **Méthode** : phases Analyse → Vérification → Planification → Préparation → Développement ; ne pas passer à la phase suivante sans validation du propriétaire. Questions posées dans l'ordre du parcours utilisateur, toujours avec une option « Autre / réponse personnalisée » ; ne pas reposer un point déjà validé. Le propriétaire décide du fonctionnel et du visuel.
-- **Règles non négociables** : pas de bouton décoratif ni de donnée fictive ; ne jamais inventer performances, mesures ou intégrations ; RLS configuré **et testé** sur chaque table privée ; aucune clé secrète (dont Polomix, secrets OAuth) côté client ou dans Git, appels privés via Edge Functions ; scores/récompenses à règles explicites et testables ; compiler ne suffit pas, tester chaque fonctionnalité ; tenir `README.md` à jour.
-- **DA** : une seule identité sombre EVOLUP (fond bleu nuit, halos bleu-violet/cyan, dot grid, cartes en verre, logo en dégradé) sur **toute** l'application ; ne pas la modifier. Thèmes/palettes reportés en V1.1.0.
-- **Coach IA** : ne bloque jamais le reste ; si indisponible, afficher « N/A » / indisponible ; état et tests de compatibilité visibles dans les Paramètres ; toute modification de programme proposée puis validée par l'utilisateur avant enregistrement.
-- **Plateformes** : Android, Web, iOS prioritaires (pas encore de dossier `ios/`) ; garder Windows/macOS possibles. Hors V1 : modèles 3D, social réel, dashboard ordinateur avancé.
-- **Supabase** : projet « EVOLUP [App] » (ref `zhvhbtqpxorhrxfgeaen`, eu-west-1), accessible via le connecteur MCP Supabase, qui gère la base mais **pas** la configuration Auth (modèles d'e-mail, longueur de mot de passe, redirections, SMTP, fournisseurs OAuth : tableau de bord, par le propriétaire). Au 2026-10-24 : migration `athlete_profiles` **appliquée** (version `20261021000000`, via `npx supabase db push --linked` depuis ce dossier, lié au projet) ; `public.Profiles` reste une table non versionnée, inutilisée par l'app. Le MCP `apply_migration` renvoie `declined` : appliquer les migrations avec le CLI (`--dry-run` d'abord). Ne jamais lancer `supabase config push` (`supabase/config.toml` = valeurs locales par défaut).
-- **Autorisations distantes** : le propriétaire autorise les tables, colonnes, relations, index et RLS nécessaires, **mais chaque migration exige un plan présenté puis son accord explicite** ; aucune suppression de table ou de donnée, aucune modification de `public.Profiles` ou `rls_auto_enable()`, aucun utilisateur de test, secret, clé ou identifiant OAuth sans accord. Lectures (`SELECT`, advisors, `/auth/v1/settings`) autorisées. Ne pas changer `com.example.my_training` sans accord. Migrations versionnées dans `supabase/migrations/`.
+- `SPEC_PROJECT.md` is the living specification (sections numbered like the
+  owner's 2026-11-09 reconstruction brief; code comments cite them). Record
+  every validated decision in its journal (§19); keep undecided points
+  **[Ouvert]** (§20). Do not invent features; nothing from V2 (§14: watches,
+  Health Connect, sync, third-party services, file import, social).
+- Never fake: no decorative button, no sample data in charts or lists, no
+  invented coach reply, no simulated connection. Empty states explain why.
+- The old sports vision (programme, sessions, quests, EXP, levels, score /100,
+  questionnaire) is retired from the app (§13). Do not bring it back without
+  a new owner decision. `public.athlete_profiles` stays in the database.
+- Security: RLS on every table, tested with several identities; no secret in
+  Flutter, Git or logs; private calls through Edge Functions; Polomix never
+  writes user data (§10.3).
+- Remote Supabase (project `zhvhbtqpxorhrxfgeaen`): read-only checks are fine;
+  **every migration, function deploy, secret, account or role change needs a
+  presented plan and the owner's explicit go**. Never `db reset` remotely,
+  never `supabase config push` (`config.toml` holds local defaults).
+- A feature is done only when tested. Report untested work as such.
+- Toolchain floor: Flutter 3.32 / Dart 3.8 (Replit). Do not use newer APIs
+  (e.g. `DropdownButtonFormField.initialValue`; use `LabeledDropdown`).
 
 ## Commands
 
 ```powershell
 flutter pub get
-flutter analyze                      # lints: package:flutter_lints/flutter.yaml
-flutter test                         # all tests
-flutter test test/questionnaire_test.dart                 # one file
-flutter test --plain-name "equipment is only asked"       # one test by name
+flutter analyze
+flutter test                                   # 126 widget/unit tests
+flutter test test/entry_form_test.dart         # one file
+dart format lib test
+
+# Database: migrations on a local PostgreSQL 17 (no Docker, no remote)
+cd supabase/tests/db; npm install; npm test     # 46 tests
+
+# Edge Function (from supabase/functions/coach-chat)
+npx -y deno@2.9.6 fmt --check . ; npx -y deno@2.9.6 lint .
+npx -y deno@2.9.6 check *.ts
+npx -y deno@2.9.6 test --no-prompt --allow-read=. *_test.ts   # 43 tests
+
+# Remote, read-only check of pending migrations
+npx supabase db push --linked --dry-run
 ```
 
-Run: the EVOLUP project's public URL and publishable key are the defaults in `lib/config/supabase_config.dart`, so no arguments are needed (`--dart-define`/`--dart-define-from-file=config/supabase.local.json` only override them). VS Code ▶️ uses `.vscode/launch.json`. The owner opens the parent folder `Desktop/EVOLUP` in VS Code, so the launch file actually used is `../.vscode/launch.json` (a copy of this repo's one, with `EVOLUP/` paths): keep both in sync.
-
-```powershell
-flutter run -d chrome --web-port=5000
-flutter build web --release      # or: flutter build apk --release
-```
-
-Web preview (Replit/bash): `bash scripts/run-web.sh` builds `flutter build web --release --no-web-resources-cdn` and serves `build/web` on port 5000 via `scripts/serve-web.py`. It does not hot reload. The toolchain floor is Dart 3.8 / Flutter 3.32 (Replit's Nix toolchain), so don't use language features newer than Dart 3.8. `replit.md` describes an older scope and is outdated.
+Run: `flutter run -d chrome --web-port=5000` (any port works for Polomix:
+`coach-chat` accepts loopback origins on every port and private LAN
+addresses with a port; see its README). The EVOLUP project's public URL and
+publishable key are the defaults in `lib/config/supabase_config.dart`.
+The owner opens the parent folder, whose `../.vscode/launch.json` is a copy
+of this repo's: keep both in sync.
 
 ## Architecture
 
-- **Startup (`lib/main.dart`)**: creates the `SharedPreferencesDraftStore`, then initializes Supabase only if `SupabaseConfig.isConfigured` (`lib/config/supabase_config.dart`, which reads `String.fromEnvironment` with the EVOLUP project as default, and computes `redirectUrl`: page origin on web, `evolup://auth-callback` on Android/iOS). Repositories are passed into `EvolupApp` as **nullable**; `null` means unconfigured and the UI must handle it. Only the publishable key ever goes in the client. Authorization relies on RLS.
-- **Routing (`lib/app/evolup_app.dart`, `AppGate`)**: no router. `AppGate` is a state machine driven by `AuthRepository.userIdChanges`, `passwordRecoveryEvents` and `authFailures`. Order: password recovery → loading → unconfigured sign-in → sign-in → profile load error (retry) → questionnaire (no profile row, or editing) → `AppShell` (`lib/app/shell/`). `AppShell` holds the main destinations (`AppDestination` enum: coach, home, stats, in bar order) in an `IndexedStack`: each page is built on first visit then kept alive (hidden pages' tickers paused), the system back action returns to Home, and `EvolupNavBar` is the floating glass bar (hidden while the keyboard is open; it extends the body, so pages get its height as bottom padding through `SafeArea`). Home and Coach pages are built by `AppGate` and passed in (`home`, `coach`); to add a destination or replace the Statistiques placeholder (`lib/features/stats/`, built on `ComingSoonPage`), edit the enum and `_page`. A session alone never means a completed profile. Screens receive callbacks (`onSave`, `onFinished`, `onSignOut`) instead of repositories. Async results are discarded when `userId` changed meanwhile.
-- **Coach IA**: Flutter → Edge Function `supabase/functions/coach-chat/` → Polomix (`POST /api/v1/chat`, model `chatix-25`) → Flutter; never call Polomix from the app. `CoachRepository` (`lib/coach/`) calls `functions.invoke('coach-chat', {kind: 'chat', message})` with the user's session; errors are classified by the function's error `code` (`coach_error.dart`); `CoachController` keeps a temporary conversation, one request at a time, and only adds coach messages from real replies. Coach replies are rendered by `CoachMarkdown` (`lib/features/coach/widgets/coach_markdown.dart`, `flutter_markdown_plus` pinned to 1.0.7 with `markdown` 7.3.0 because later versions need Dart 3.9): no image loading, links not opened, HTML blocks kept as plain text; user messages stay plain `Text`. The function follows Polomix's documented contract only: the user's message is sent alone and the `reply` field is returned as is when the response is a 2xx JSON object without `error` and with a non-empty string `reply` (otherwise `coach_bad_response`). No tag contract and no keyword/heading/length filters (the owner rejected them); `reply` can contain the model's analysis before its answer, and Polomix documents no way to separate them. The function is split for tests (`handler.ts` with injected `verifyUser`/Polomix/rate limiter, `polomix.ts`, `contract.ts`, `cors.ts`, `rate_limit.ts`; `index.ts` wires `auth.getClaims` and `Deno.env`); `verify_jwt = false` in `config.toml` because the session is verified inside (JWT signing keys ES256; the platform check would also block CORS preflight). The in-memory rate limit is best effort only. Request envelopes carry a `kind` so future structured tasks get their own validated kind (contract in the function's `README.md`). Deno tooling: `npx -y deno@2.9.6 fmt|lint|check|test` from the function folder (no global Deno). Deploy and secrets need the owner's explicit approval.
-- **Repository boundaries**: `AuthRepository` (`lib/auth/`), `CoachRepository` (`lib/coach/`), `AthleteProfileRepository` and `QuestionnaireDraftStore` (`lib/data/`) are abstract interfaces with Supabase/SharedPreferences implementations. The profile repository takes the user id from the Supabase session (`loadCurrent`/`saveCurrent`), never from the UI. Tests replace them with in-memory fakes in `test/support/` and never touch Supabase.
-- **Auth (`lib/auth/`, `lib/features/auth/`)**: `SignInScreen` is layout only; the flow lives in `EmailAuthController` (credentials ↔ code step, busy action, failure, notice, 60 s resend cooldown, OAuth availability). « Continuer » only signs in; « Créer un compte » is a separate action; a failed sign-in **never** triggers a sign-up (dedicated tests). Errors are classified by Supabase error **code** in `auth_error.dart`; French strings in `auth_messages.dart` (`minimumPasswordLength = 8`). Google/Apple buttons are active only if `/auth/v1/settings` reports the provider enabled and the platform supports the OAuth return (`social_auth_provider.dart`); OAuth errors arrive through `authFailures` (Supabase emits them on the auth stream) and are shown on the sign-in screen.
-- **Questionnaire (`lib/features/onboarding/`)**: one question per screen. `QuestionnaireStep` (order, texts, validation, `stepsFor` hides the equipment step unless « À domicile ») and `QuestionnaireController` (draft, index/direction, save state, double-submit guard). The draft is kept locally after each answer/move and cleared after the save; Supabase is written **once**, at the end. Question widgets are in `widgets/` (number field, choice tiles, vertical sessions slider, day circles, header).
-- **Profile rules**: `lib/data/profile_rules.dart` holds every allowed value and bound; the migration's checks must stay identical (`test/profile_rules_test.dart` reads the SQL file). A schema change requires a new migration plus matching `AthleteProfile.toMap/fromMap` and rules.
-- **Visual identity**: `buildEvolupBrandTheme()`/`EvolupColors` in `lib/theme/evolup_theme.dart`; shared widgets in `lib/app/widgets/` (`EvolupBackground`, `GlassCard` with an optional dark `tint`, `StatusMessage`, `ButtonSpinner`, `PressScale`, `ComingSoonPage`); the logo is only drawn in `lib/app/evolup_logo.dart` so it can be swapped. Animations are skipped when `MediaQuery.disableAnimations` is set.
-- **Password recovery**: Android declares the `evolup://auth-callback` intent filter in `AndroidManifest.xml`. Redirect URLs must be allow-listed in the Supabase Auth dashboard. `supabase_flutter` uses the PKCE flow by default, so a reset link only works on the device/browser that requested it.
-- **Visual checks of the web build**: headless Chrome lays pages out at ≥500 px wide even with `--window-size=390,…`, so phone screenshots must use DevTools device emulation (`Emulation.setDeviceMetricsOverride` over `--remote-debugging-port`; Node 24 has a global `WebSocket`). Screens behind sign-in can be previewed by building a temporary entry point that wires the fakes from `test/support/` (delete it afterwards).
+- **Startup** (`lib/main.dart`): Supabase client, `SupabaseAuthRepository`,
+  `SessionServices` (profiles, metrics, coach repositories, device time zone).
+  `null` services = unconfigured; the UI handles it.
+- **App** (`lib/app/evolup_app.dart`): `EvolupApp` holds the
+  `SignedInSession` above the navigator (`MaterialApp.builder` →
+  `SessionScope`) and builds the theme from the profile (brand theme when
+  signed out). `AppGate`: password recovery → sign-in → session loading
+  (profile created on first sign-in with the device's IANA zone, catalog and
+  tracked metrics) → error with retry → `AppShell`.
+- **Session** (`lib/app/session/`): `SignedInSession` (profile controller,
+  `MetricsController`, coach repository, device time zone, current section).
+  `MetricsController` holds categories, catalog, tracked metrics and every
+  write; its `revision` increases when recorded data changes. Pages that load
+  data use the `RevisionReload` mixin. In callbacks use `SessionScope.read`,
+  in `build` `SessionScope.of`.
+- **Shell** (`lib/app/shell/`): five `AppDestination`s in an `IndexedStack`
+  (built on first visit, kept alive), floating glass `EvolupNavBar` (hidden
+  with the keyboard), back → overview. Pages above the sections are pushed
+  with `evolupRoute` (`lib/app/routes.dart`; `emphasized` for Polomix → form).
+- **Data** (`lib/data/`): `LocalDate` (calendar day, no time zone),
+  `metrics/metric_models.dart`, `metrics/metric_values.dart` (conversion
+  display ↔ storage unit, validation, French formatting),
+  `metrics/metrics_repository.dart` (PostgREST + RPC), `profile/`,
+  `data_error.dart` (database error codes → French), `uuid.dart`,
+  `device_timezone.dart` (`flutter_timezone`).
+- **Features** (`lib/features/`): `overview/`, `data/` (Mes données, search),
+  `metrics/` (metric page, navigation helpers, tiles, correction dialog,
+  texts), `entry/` (`EntryController` + `MetricEntryScreen` + `ValueInput`),
+  `stats/` (screen, generic `MetricChart` CustomPainter, `MetricAnalysis`,
+  period/bucket selectors), `coach/` (Polomix chat, action card), `settings/`
+  (profile, appearance, privacy, connections V2 notice, data management,
+  `PolomixStatusCard`), `auth/` (unchanged sign-in).
+- **Theme** (`lib/theme/evolup_theme.dart`): `EvolupColors` ThemeExtension
+  resolved from `AppPalette` (gold, black_white, blue, violet) × `AppThemeMode`
+  (dark default); widgets read `EvolupColors.of(context)`, never fixed colors.
+  `EvolupBrand` = fixed night-blue identity of the sign-in screens. Logo only
+  in `lib/app/evolup_logo.dart`.
+- **Supabase** (`supabase/migrations/`): `profiles`, `metric_categories`,
+  `metric_catalog` (+ seed), `user_metrics`, `metric_daily_aggregates`, view
+  `metric_daily_values`, functions `record_metric_entry` /
+  `correct_metric_day` (the only writers, SECURITY DEFINER), read functions
+  `get_overview`, `get_metric_history`, `get_metric_statistics`,
+  `compare_metric_periods`, `list_timezones`; helpers in schema `private`.
+  Catalog changes: new migration only; never delete or redefine a tracked
+  metric (retire it). Every new SQL function: `set search_path = ''`, fully
+  qualified names, explicit `revoke ... from public, anon, authenticated,
+  service_role` then the needed grant; add tests in `supabase/tests/db`.
+- **Polomix** (`supabase/functions/coach-chat/`): `handler.ts` (flow),
+  `intent.ts` (deterministic entry detection → `open_metric_form`),
+  `context.ts` (prompt: rules + relevant data), `data.ts` (read-only, user
+  session, header `x-evolup-actor: polomix`), `polomix.ts`, `catalog.ts`.
+  The Polomix reply is shown as is (no tags, no text filters: owner's
+  decision). Flutter: `lib/coach/` (`CoachReply`, `CoachAction`,
+  `CoachProbe`), `lib/features/coach/`.
+- **Tests**: Flutter tests use in-memory fakes (`test/support/`:
+  `FakeMetricsRepository` mirrors the SQL rules, `TestWorld`, `pumpApp`,
+  `pumpInSession`); they never touch Supabase. The real rules are tested on
+  PostgreSQL in `supabase/tests/db`.
+- **Visual checks of the web build**: headless Chrome lays pages out at
+  ≥500 px wide, so phone screenshots need DevTools device emulation
+  (`Emulation.setDeviceMetricsOverride`). Screens behind sign-in can be
+  previewed with a temporary entry point that wires the fakes of
+  `test/support/` (delete it afterwards).

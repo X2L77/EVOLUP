@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../theme/evolup_theme.dart';
 
-enum StatusMessageKind { error, info }
+enum StatusMessageKind { error, info, success }
 
+/// Inline confirmation, information or error, announced to screen readers.
 class StatusMessage extends StatelessWidget {
   const StatusMessage({
     required this.message,
@@ -16,9 +17,12 @@ class StatusMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = kind == StatusMessageKind.error
-        ? EvolupColors.error
-        : EvolupColors.success;
+    final colors = EvolupColors.of(context);
+    final color = switch (kind) {
+      StatusMessageKind.error => colors.error,
+      StatusMessageKind.info => colors.accent,
+      StatusMessageKind.success => colors.success,
+    };
     return Semantics(
       liveRegion: true,
       child: Container(
@@ -33,8 +37,8 @@ class StatusMessage extends StatelessWidget {
           message,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
             color: kind == StatusMessageKind.error
-                ? EvolupColors.error
-                : EvolupColors.textPrimary,
+                ? colors.error
+                : colors.textPrimary,
           ),
         ),
       ),

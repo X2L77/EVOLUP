@@ -48,3 +48,4 @@ app.*.map.json
 # Local Supabase client values (public URL + publishable key), passed with
 # --dart-define-from-file. Template: config/supabase.example.json
 /config/*.local.json
+/supabase/tests/db/node_modules/

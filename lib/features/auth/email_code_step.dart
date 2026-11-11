@@ -60,7 +60,7 @@ class _EmailCodeStepState extends State<EmailCodeStep> {
             controller.pendingEmail ?? '',
             key: const Key('auth-code-email'),
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: EvolupColors.textSecondary,
+              color: EvolupBrand.textSecondary,
             ),
           ),
           if (notice != null) ...[
@@ -113,7 +113,7 @@ class _EmailCodeStepState extends State<EmailCodeStep> {
                 ? null
                 : controller.resendCode,
             child: resending
-                ? const ButtonSpinner(color: EvolupColors.textPrimary)
+                ? const ButtonSpinner(color: EvolupBrand.textPrimary)
                 : Text(
                     secondsLeft > 0
                         ? 'Renvoyer le code ($secondsLeft s)'

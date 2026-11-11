@@ -55,6 +55,7 @@ class CoachComposer extends StatelessWidget {
       ValueListenableBuilder<TextEditingValue>(
         valueListenable: controller,
         builder: (context, value, _) {
+          final colors = EvolupColors.of(context);
           final length = value.text.trim().length;
           final canSend = enabled && !sending && length > 0;
           return Column(
@@ -69,8 +70,8 @@ class CoachComposer extends StatelessWidget {
                     key: const Key('coach-counter'),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: length > coachMaxMessageLength
-                          ? EvolupColors.error
-                          : EvolupColors.textSecondary,
+                          ? colors.error
+                          : colors.textSecondary,
                     ),
                   ),
                 ),
@@ -97,12 +98,12 @@ class CoachComposer extends StatelessWidget {
                         onSubmitted: (_) => onSend(),
                         decoration: InputDecoration(
                           hintText: enabled
-                              ? 'Écrire au coach…'
+                              ? 'Écrire à Polomix…'
                               : 'Envoi impossible',
-                          border: _border(EvolupColors.fieldBorder),
-                          enabledBorder: _border(EvolupColors.fieldBorder),
-                          disabledBorder: _border(EvolupColors.fieldBorder),
-                          focusedBorder: _border(EvolupColors.focus, 1.5),
+                          border: _border(colors.fieldBorder),
+                          enabledBorder: _border(colors.fieldBorder),
+                          disabledBorder: _border(colors.fieldBorder),
+                          focusedBorder: _border(colors.accent, 1.5),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 18,
                             vertical: 14,
@@ -117,10 +118,10 @@ class CoachComposer extends StatelessWidget {
                     tooltip: 'Envoyer',
                     onPressed: canSend ? onSend : null,
                     style: IconButton.styleFrom(
-                      backgroundColor: EvolupColors.primaryButton,
-                      foregroundColor: EvolupColors.primaryButtonText,
-                      disabledBackgroundColor: EvolupColors.fieldFill,
-                      disabledForegroundColor: EvolupColors.textSecondary,
+                      backgroundColor: colors.primaryButton,
+                      foregroundColor: colors.primaryButtonText,
+                      disabledBackgroundColor: colors.fieldFill,
+                      disabledForegroundColor: colors.textSecondary,
                       fixedSize: const Size.square(50),
                     ),
                     icon: const Icon(Icons.arrow_upward_rounded),

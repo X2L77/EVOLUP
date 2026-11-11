@@ -27,15 +27,16 @@ class GlassCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = EvolupColors.of(context);
     final shape = BorderRadius.circular(radius);
     Widget glass = DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: shape,
-        border: Border.all(color: EvolupColors.glassBorder),
-        gradient: const LinearGradient(
+        border: Border.all(color: colors.glassBorder),
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [EvolupColors.glassFillTop, EvolupColors.glassFillBottom],
+          colors: [colors.glassFillTop, colors.glassFillBottom],
         ),
       ),
       child: Padding(padding: padding, child: child),

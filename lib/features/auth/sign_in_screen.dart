@@ -80,7 +80,8 @@ class _SignInScreenState extends State<SignInScreen> {
         ? Duration.zero
         : const Duration(milliseconds: 260);
     return Theme(
-      data: buildEvolupBrandTheme(),
+      // Always the EVOLUP night-blue identity, whatever the user's palette.
+      data: buildEvolupTheme(EvolupColors.brand),
       child: Builder(
         builder: (context) => EvolupBackground(
           child: Scaffold(
@@ -302,7 +303,7 @@ class _CredentialsStepState extends State<_CredentialsStep> {
                   key: const Key('auth-request-code'),
                   onPressed: busy == null ? controller.requestCode : null,
                   child: busy == EmailAuthAction.requestCode
-                      ? const ButtonSpinner(color: EvolupColors.textPrimary)
+                      ? const ButtonSpinner(color: EvolupBrand.textPrimary)
                       : const Text('Recevoir un code'),
                 ),
               ),
@@ -376,7 +377,7 @@ class _CredentialsStepState extends State<_CredentialsStep> {
               key: const Key('auth-forgot'),
               onPressed: busy == null ? _resetPassword : null,
               child: busy == EmailAuthAction.resetPassword
-                  ? const ButtonSpinner(color: EvolupColors.textPrimary)
+                  ? const ButtonSpinner(color: EvolupBrand.textPrimary)
                   : const Text('Mot de passe oublié ?'),
             ),
           ),
@@ -393,11 +394,11 @@ class _CredentialsStepState extends State<_CredentialsStep> {
             key: const Key('auth-create'),
             onPressed: busy == null ? _signUp : null,
             child: busy == EmailAuthAction.signUp
-                ? const ButtonSpinner(color: EvolupColors.textPrimary)
+                ? const ButtonSpinner(color: EvolupBrand.textPrimary)
                 : const Text('Créer un compte'),
           ),
           const SizedBox(height: 14),
-          const Divider(color: EvolupColors.glassBorder, height: 1),
+          const Divider(color: EvolupBrand.glassBorder, height: 1),
           const SizedBox(height: 18),
           SocialAuthButtons(
             availabilityOf: controller.availabilityOf,

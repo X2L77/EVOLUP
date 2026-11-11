@@ -1,25 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app/evolup_app.dart';
 import 'auth/auth_repository.dart';
 import 'coach/coach_repository.dart';
 import 'config/supabase_config.dart';
-import 'data/athlete_profile_repository.dart';
-import 'data/questionnaire_draft_store.dart';
+import 'data/metrics/metrics_repository.dart';
+import 'data/profile/profile_repository.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final draftStore = SharedPreferencesDraftStore(
-    SharedPreferences.getInstance(),
-  );
-
   String? initializationError;
   AuthRepository? authRepository;
-  AthleteProfileRepository? profileRepository;
-  CoachRepository? coachRepository;
+  SessionServices? services;
   if (SupabaseConfig.isConfigured) {
     try {
       await Supabase.initialize(
@@ -33,8 +27,11 @@ Future<void> main() async {
         publishableKey: SupabaseConfig.publishableKey,
         redirectUrl: SupabaseConfig.redirectUrl,
       );
-      profileRepository = SupabaseAthleteProfileRepository(client);
-      coachRepository = SupabaseCoachRepository(client);
+      services = SessionServices(
+        profiles: SupabaseProfileRepository(client),
+        metrics: SupabaseMetricsRepository(client),
+        coach: SupabaseCoachRepository(client),
+      );
     } on Exception {
       initializationError =
           'Impossible d’initialiser Supabase. Vérifiez la configuration '
@@ -45,9 +42,7 @@ Future<void> main() async {
   runApp(
     EvolupApp(
       authRepository: authRepository,
-      profileRepository: profileRepository,
-      draftStore: draftStore,
-      coachRepository: coachRepository,
+      services: services,
       initializationError: initializationError,
     ),
   );

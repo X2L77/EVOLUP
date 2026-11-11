@@ -1,22 +1,38 @@
-// Coach IA chat: Flutter -> this Edge Function -> Polomix -> Flutter.
+// Polomix, the user's analyst: Flutter -> this Edge Function -> Polomix ->
+// Flutter.
 //
 // The platform JWT check is disabled for this function (config.toml) and the
 // caller is verified here with `auth.getClaims`, as recommended by Supabase
 // for JWT signing keys; it also lets the browser's CORS preflight through.
-// Only a signed-in, non-anonymous user can reach Polomix. No database access
-// and no service_role key are used.
+// Only a signed-in, non-anonymous user can reach Polomix. The user's data is
+// read with the user's own session (RLS), read-only; no service_role key is
+// used.
 
 import { createClient } from '@supabase/supabase-js';
-import { allowedOriginsFrom } from './cors.ts';
+import { originPolicyFrom } from './cors.ts';
+import { createCoachData } from './data.ts';
 import { createHandler } from './handler.ts';
 import { createPolomixClient } from './polomix.ts';
 import { InMemoryRateLimiter } from './rate_limit.ts';
 
-const auth = createClient(
-  Deno.env.get('SUPABASE_URL') ?? '',
-  publicApiKey(),
-  { auth: { persistSession: false, autoRefreshToken: false } },
-).auth;
+const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+const publicKey = publicApiKey();
+
+const origins = originPolicyFrom(
+  Deno.env.get('COACH_ALLOWED_ORIGINS'),
+  Deno.env.get('COACH_LOCAL_ORIGINS'),
+);
+if (origins.ignored.length > 0) {
+  // Counts only: the entries are not secret, but logs stay minimal.
+  console.warn(JSON.stringify({
+    event: 'coach_chat_config',
+    ignoredOrigins: origins.ignored.length,
+  }));
+}
+
+const auth = createClient(supabaseUrl, publicKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+}).auth;
 
 Deno.serve(
   createHandler({
@@ -29,11 +45,12 @@ Deno.serve(
         ? sub
         : null;
     },
+    dataFor: (token) => createCoachData(supabaseUrl, publicKey, token),
     polomix: createPolomixClient({
       apiKey: () => Deno.env.get('POLOMIX_API_KEY'),
     }),
     rateLimiter: new InMemoryRateLimiter(),
-    allowedOrigins: allowedOriginsFrom(Deno.env.get('COACH_ALLOWED_ORIGINS')),
+    origins,
     log: (event) => console.log(JSON.stringify(event)),
   }),
 );

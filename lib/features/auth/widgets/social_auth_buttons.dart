@@ -75,15 +75,15 @@ class _SocialButton extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           minimumSize: const Size.fromHeight(50),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          backgroundColor: EvolupColors.fieldFill,
-          foregroundColor: EvolupColors.textPrimary,
-          side: const BorderSide(color: EvolupColors.glassBorder),
+          backgroundColor: EvolupBrand.fieldFill,
+          foregroundColor: EvolupBrand.textPrimary,
+          side: const BorderSide(color: EvolupBrand.glassBorder),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
         ),
         child: loading
-            ? const ButtonSpinner(color: EvolupColors.textPrimary)
+            ? const ButtonSpinner(color: EvolupBrand.textPrimary)
             : Opacity(
                 opacity: status == null ? 1 : 0.6,
                 child: Row(
@@ -100,7 +100,7 @@ class _SocialButton extends StatelessWidget {
                             Text(
                               status,
                               style: textTheme.labelSmall?.copyWith(
-                                color: EvolupColors.textSecondary,
+                                color: EvolupBrand.textSecondary,
                               ),
                             ),
                         ],

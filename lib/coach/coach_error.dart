@@ -48,7 +48,7 @@ CoachFailure classifyCoachError(Object error) {
   if (error is FunctionsFetchException) return CoachFailure.network;
   if (error is FunctionsRelayException) return CoachFailure.unavailable;
   if (error is FunctionException) {
-    return _failureForCode(_errorCode(error.details)) ??
+    return failureForCode(_errorCode(error.details)) ??
         _failureForStatus(error.status);
   }
   return CoachFailure.unknown;
@@ -62,7 +62,8 @@ String? _errorCode(Object? details) {
   return code is String ? code : null;
 }
 
-CoachFailure? _failureForCode(String? code) => switch (code) {
+/// The failure named by an error code of the function, if known.
+CoachFailure? failureForCode(String? code) => switch (code) {
   'unauthorized' => CoachFailure.notSignedIn,
   'message_too_long' => CoachFailure.messageTooLong,
   'empty_message' ||

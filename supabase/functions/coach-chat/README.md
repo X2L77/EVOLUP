@@ -1,172 +1,149 @@
-# Edge Function `coach-chat`
+# Edge Function `coach-chat` — Polomix, l'analyste d'EVOLUP
 
-Chat du Coach IA : **Flutter → `coach-chat` → Polomix → `coach-chat` →
-Flutter**. L'application n'appelle jamais Polomix directement et ne connaît pas
-la clé.
+**Flutter → `coach-chat` → (données de l'utilisateur, en lecture) → Polomix →
+`coach-chat` → Flutter.** L'application n'appelle jamais Polomix directement et
+ne connaît pas la clé. « v4 » (2026-11-09), **déployée le 2026-11-09** (version
+4 de la fonction) ; non encore essayée avec une vraie session.
 
-## Protocole (v1)
+## Protocole
 
 `POST /functions/v1/coach-chat`, avec la session Supabase de l'utilisateur
-(`Authorization: Bearer <access token>`, ajouté par `supabase_flutter`).
+(`Authorization: Bearer <access token>`, ajouté par `supabase_flutter`). Corps
+limité à 16 Ko.
 
-Requête : `{ "kind": "chat", "message": "<texte>" }`. Le message est nettoyé
-(espaces de début et de fin) et limité à 2 000 caractères ; le corps est limité
-à 16 Ko.
+| Requête                                              | Réponse 200                                                                                                                                          |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{"kind":"chat","message":"…"}` (≤ 2 000 caractères) | `{"kind":"chat","reply":"…"\|null,"model":"chatix-25"\|null,"action":{…}\|null,"context":{"metrics":["tractions"],"data_access":true\|false\|null}}` |
+| `{"kind":"status"}`                                  | `{"kind":"status","configured":true,"model":"chatix-25"}` (aucun appel à Polomix)                                                                    |
+| `{"kind":"probe"}`                                   | `{"kind":"probe","ok":…,"model":…,"latency_ms":…,"checks":{"secret","reachable","authorized","contract"},"error":code\|null}` (un court appel réel)  |
 
-Envoi à Polomix : le message de l'utilisateur seul, tel quel, selon le contrat
-documenté (`{"message","model":"chatix-25"}`). Le champ `reply` de la réponse
-est renvoyé à l'application tel quel (espaces de début et de fin retirés), sans
-balise exigée ni filtrage du texte. Il n'est accepté que si la réponse est un
-succès HTTP, un objet JSON sans erreur explicite (`error` égal à `true`, objet
-ou texte non vide ; `error` absent, `null`, `false` ou vide est ignoré), avec un
-`reply` texte non vide.
+`action` (seule action existante) :
+`{"type":"open_metric_form","metric_slug":"tractions","suggested_value":8}`,
+valeur dans l'unité de stockage du catalogue ou `null`.
 
-Réponse :
-`{ "kind": "chat", "reply": "<champ reply de Polomix>", "model": "chatix-25" }`.
+`context.metrics` : les indicateurs dont les données ont été envoyées à Polomix
+(affichés sous la réponse). `data_access` : consentement de l'utilisateur
+(`null` si inconnu, par exemple données illisibles).
 
 Erreur : `{ "error": { "code": "<code>", "message": "<texte court>" } }`.
 
-| Code                                | HTTP | Cause                                                     |
-| ----------------------------------- | ---- | --------------------------------------------------------- |
-| `unauthorized`                      | 401  | Pas de session valide (utilisateur connecté, non anonyme) |
-| `invalid_json`, `invalid_request`   | 400  | Corps illisible ou mal formé                              |
-| `unsupported_kind`                  | 400  | `kind` autre que `chat` (tâches futures)                  |
-| `empty_message`, `message_too_long` | 400  | Message vide ou > 2 000 caractères                        |
-| `payload_too_large`                 | 413  | Corps > 16 Ko                                             |
-| `origin_not_allowed`                | 403  | Origine Web non autorisée                                 |
-| `method_not_allowed`                | 405  | Autre méthode que `POST`/`OPTIONS`                        |
-| `rate_limited`                      | 429  | Trop d'appels (en-tête `Retry-After`)                     |
-| `coach_not_configured`              | 503  | Secret `POLOMIX_API_KEY` absent                           |
-| `coach_quota_reached`               | 503  | Polomix : 402/429 (offre ou débit)                        |
-| `coach_unavailable`                 | 502  | Polomix : clé refusée, 5xx, réseau                        |
-| `coach_rejected`                    | 502  | Polomix : 400/413/422                                     |
-| `coach_timeout`                     | 504  | Pas de réponse en 30 s                                    |
-| `coach_bad_response`                | 502  | 2xx non JSON, avec `error`, ou `reply` absent/vide        |
+| Code                                | HTTP | Cause                                              |
+| ----------------------------------- | ---- | -------------------------------------------------- |
+| `unauthorized`                      | 401  | Pas de session valide (connectée, non anonyme)     |
+| `invalid_json`, `invalid_request`   | 400  | Corps illisible ou mal formé                       |
+| `unsupported_kind`                  | 400  | `kind` inconnu                                     |
+| `empty_message`, `message_too_long` | 400  | Message vide ou > 2 000 caractères                 |
+| `payload_too_large`                 | 413  | Corps > 16 Ko                                      |
+| `origin_not_allowed`                | 403  | Origine Web non autorisée                          |
+| `method_not_allowed`                | 405  | Autre méthode que `POST`/`OPTIONS`                 |
+| `rate_limited`                      | 429  | Trop d'appels (en-tête `Retry-After`)              |
+| `coach_not_configured`              | 503  | Secret `POLOMIX_API_KEY` absent                    |
+| `coach_quota_reached`               | 503  | Polomix : 402/429                                  |
+| `coach_unavailable`                 | 502  | Polomix : clé refusée, 5xx, réseau                 |
+| `coach_rejected`                    | 502  | Polomix : 400/413/422                              |
+| `coach_timeout`                     | 504  | Pas de réponse en 30 s                             |
+| `coach_bad_response`                | 502  | 2xx non JSON, avec `error`, ou `reply` absent/vide |
 
-Les réponses d'erreur ne contiennent jamais la clé, le corps renvoyé par
-Polomix, ni de détail interne.
+## Déroulement d'un message
+
+1. Session vérifiée (`auth.getClaims`), puis limite d'appels.
+2. Catalogue lu avec la session de l'utilisateur (`data.ts`).
+3. **Saisie ?** (`intent.ts`, déterministe) : un message qui rapporte ou demande
+   une saisie (« Je viens de faire 8 tractions. ») et n'est pas une question
+   renvoie l'action **sans appeler Polomix**. Indicateur actif unique, valeur
+   seulement si elle est certaine (un seul nombre du bon genre, dans les
+   bornes). Ambiguïté, indicateur retiré ou inconnu : pas d'action. Le
+   formulaire s'ouvre donc même si Polomix est en panne.
+4. Sinon : profil lu (fuseau, consentement `coach_data_access`). Avec
+   consentement, seules les données des indicateurs nommés par le message (3 au
+   plus : 30 derniers jours, record, tendance, 12 semaines, 7 dernières
+   journées), ou un résumé de tous les indicateurs suivis pour une question
+   générale (`context.ts`, partie données ≤ 3 500 caractères). Sans consentement
+   : aucune donnée, et Polomix en est informé. Données illisibles : Polomix en
+   est informé, sans rien inventer.
+5. Message envoyé à Polomix : consignes (n'utiliser que ces données, ne rien
+   inventer, ne rien enregistrer, corrélation ≠ causalité, dire les limites),
+   données, puis le message de l'utilisateur. L'API documentée n'a qu'un champ
+   `message` (pas de rôle système).
+6. `reply` renvoyé tel quel (espaces retirés), après contrôle du statut HTTP et
+   du JSON ; aucun filtre sur le texte (décision du propriétaire, v3).
+
+Pourquoi l'action n'est pas demandée au modèle : l'API ne documente aucune
+réponse structurée, et la v2 (format `<answer>` imposé) n'était suivie que 2
+fois sur 3. La reconnaissance côté fonction est testée (`intent_test.ts`) et ne
+dépend pas de Polomix.
 
 ## Sécurité
 
-- **Session** : le contrôle JWT de la passerelle est désactivé pour cette
-  fonction (`config.toml`) ; l'appelant est vérifié dans la fonction avec
-  `auth.getClaims` (clés de signature JWT ES256 du projet, recommandation
-  Supabase). Seuls `role = authenticated`, `sub` présent et non anonyme passent.
-  La requête préliminaire CORS (`OPTIONS`) passe sans session ; un `POST` sans
-  session est refusé.
-- **Secret** : `POLOMIX_API_KEY`, lu à chaque appel depuis l'environnement
-  serveur. Jamais dans Flutter, Git, les journaux ni les réponses.
-- **Aucun accès à la base** et aucune clé `service_role` : la v1 n'envoie aucune
-  donnée de profil à Polomix, seulement le message tapé.
-- **CORS** : origines Web autorisées = `http://localhost:5000` par défaut, ou la
-  liste du secret `COACH_ALLOWED_ORIGINS` (séparée par des virgules, par ex.
-  l'adresse du site publié). Les applications mobiles n'envoient pas d'origine.
-- **Appels excessifs** : 1 requête à la fois, 5 par minute et 30 par heure par
-  utilisateur, **par instance** de la fonction (mémoire). C'est un frein, pas un
-  quota fiable : les compteurs repartent à zéro au démarrage d'une instance et
-  ne sont pas partagés. Un quota fiable demandera une table (`coach_usage`)
-  écrite par la fonction : migration à valider séparément.
-- **Journaux** : résultat, statut HTTP de Polomix et durée uniquement ; ni
-  message, ni réponse, ni utilisateur, ni jeton.
+- **Session** : contrôle JWT de la passerelle désactivé (`config.toml`,
+  `verify_jwt = false`) ; vérification dans la fonction avec `getClaims` (clés
+  ES256). Le préliminaire CORS passe sans session ; un `POST` sans session est
+  refusé avant toute lecture.
+- **Données** : lues avec **la session de l'utilisateur** (RLS : seulement ses
+  lignes), jamais `service_role`. `data.ts` ne contient que des lectures
+  (`data_test.ts` le vérifie) et ajoute l'en-tête `x-evolup-actor: polomix`, que
+  les fonctions d'écriture de la base refusent. Polomix ne peut donc ni
+  enregistrer, ni modifier, ni supprimer.
+- **Secret** : `POLOMIX_API_KEY`, lu à chaque appel. Jamais dans Flutter, Git,
+  les journaux ni les réponses.
+- **CORS** (`cors.ts`, Web seulement ; ce n'est pas une authentification : la
+  session reste exigée quelle que soit l'origine) :
+  - Android et iOS n'envoient pas d'en-tête `Origin` : pas d'en-têtes CORS,
+    requête traitée normalement (session obligatoire).
+  - Développement local, sans configuration : `localhost`, `127.x.x.x` et
+    `[::1]` sur **tous les ports** (http ou https) ; adresses privées du réseau
+    local (10/8, 172.16/12, 192.168/16) **avec un port explicite** (téléphone
+    sur le même Wi-Fi). Désactivable avec le secret `COACH_LOCAL_ORIGINS=off`.
+  - Production : origines `https://` exactes listées dans le secret
+    `COACH_ALLOWED_ORIGINS` (séparées par des virgules ; `*`, chemins et
+    `http://` ignorés, et leur nombre est journalisé au démarrage).
+  - Toute autre origine (dont `null`) : `403 origin_not_allowed`, avant la
+    lecture de la session.
+- **Appels excessifs** : 1 à la fois, 5 par minute, 30 par heure et par
+  utilisateur, **par instance** (mémoire) : un frein, pas un quota fiable.
+- **Journaux** : type de requête, résultat, action oui/non, nombre d'indicateurs
+  envoyés, statut HTTP de Polomix, durée. Jamais le message, la réponse, les
+  données, l'utilisateur ou le jeton.
 
 ## Polomix (documentation consultée le 2026-10-25)
 
-Source : page « ApiDashboard » de https://polomix-ai.netlify.app (code public du
-site) et appels sans clé valide.
+Source : page « ApiDashboard » de https://polomix-ai.netlify.app et appels sans
+clé valide.
 
-- Endpoint simple utilisé : `POST /api/v1/chat`,
-  `Authorization: Bearer
-  pmx_…`, corps `{"message","model":"chatix-25"}`,
-  réponse documentée `{"reply","tokens_used","model"}` (`tokens_used` montré
-  comme une chaîne : les deux formes sont acceptées).
-- Erreurs constatées : 401 `{"error":{"message","type":"authentication_error"}}`
-  sans clé ou avec une clé invalide ; 404 `ROUTE_NOT_FOUND` sur une route
-  inconnue.
-- `POST /api/v1/chat/completions` (format OpenAI) n'est documenté qu'avec
-  `"stream": true` (SSE terminé par `[DONE]`) : **non utilisé**. Rôle `system`,
-  réponse sans streaming, historique : non documentés.
-- Quotas affichés par le site : jetons par jour et par mois selon l'offre (8 000
-  / jour et 240 000 / mois pour l'offre gratuite), 3 clés par compte.
-- **Non vérifié** : forme brute complète d'une réponse réussie (jamais
-  journalisée), codes renvoyés en cas de quota, taille maximale d'un message.
+- Endpoint utilisé : `POST /api/v1/chat`, `Authorization: Bearer pmx_…`, corps
+  `{"message","model":"chatix-25"}`, réponse `{"reply","tokens_used","model"}`.
+- `POST /api/v1/chat/completions` (format OpenAI) n'est documenté qu'en
+  streaming : non utilisé. Rôle `system`, historique : non documentés.
+- Quotas affichés : 8 000 jetons/jour et 240 000/mois (offre gratuite).
+- Constats 2026-10-25 : `reply` peut commencer par une analyse du modèle (« User
+  asks: … ») avant la réponse ; elle est affichée.
+- **Non vérifié** : taille maximale d'un message (la v4 envoie consignes +
+  données + message, jusqu'à ~6 000 caractères), codes en cas de quota, et
+  respect des consignes placées dans le message. Le test de compatibilité des
+  Paramètres et un essai réel après déploiement sont nécessaires.
 
-Constats du 2026-10-25 (fonction déployée, deux vrais échanges réussis en 4 s et
-9 s) :
+## Tests locaux (sans clé, sans réseau)
 
-- À la question « Qui est ton créateur ? », le texte affiché (le champ `reply`,
-  seulement nettoyé de ses espaces par la fonction et l'application) commençait
-  par « User asks: … », « Context: The system prompt provides specific
-  instructions… » et une analyse du respect de ces consignes, puis donnait la
-  réponse. EVOLUP n'envoie aucune consigne système : celle dont parle le modèle
-  est appliquée par Polomix, invisible et non configurable depuis l'endpoint
-  simple.
-- Le chat web de Polomix (code public, `Chat.tsx`) reçoit lui aussi un seul
-  texte et le découpe dans le navigateur en « raisonnement » et « Réponse finale
-  » en repérant des titres (« Raisonnement », « Analyse », « Réponse finale », «
-  Final answer »…). Il envoie sa propre consigne `system` à un endpoint interne
-  (`/api/chat/stream`), non documenté pour l'API publique.
-- Ce que ces éléments ne permettent pas d'établir : s'il s'agit d'un
-  raisonnement interne du modèle ou d'une mise en forme choisie par lui, et si
-  l'API publique accepte un rôle `system`.
-
-La version 2 (déployée le 2026-10-25) demandait la réponse finale dans un bloc
-`<answer>` et refusait les réponses sans ce bloc. Sur le S22, 2 questions sur 3
-ont reçu une réponse propre, la 3ᵉ a été refusée deux fois : le modèle ne
-respecte pas ce format de façon fiable, et la documentation de Polomix ne décrit
-aucun moyen de séparer l'analyse de la réponse (ni champ dédié, ni consigne
-système, ni réglage du modèle).
-
-Conséquence (version locale, non déployée) : retour au contrat documenté. Chaque
-message est envoyé seul, sans historique ni consigne, et `reply` est affiché tel
-quel : **une analyse incluse par Polomix dans `reply` sera donc affichée**. Le
-coach ne garde pas le fil de la conversation.
-
-## Tests locaux (sans clé)
-
-Avec Deno (par exemple `npx -y deno@2.9.6`), depuis ce dossier :
+Depuis ce dossier :
 
 ```powershell
 npx -y deno@2.9.6 fmt --check .
 npx -y deno@2.9.6 lint .
 npx -y deno@2.9.6 check *.ts
-npx -y deno@2.9.6 test --no-prompt handler_test.ts polomix_test.ts
+npx -y deno@2.9.6 test --no-prompt --allow-read=. *_test.ts
 ```
 
-Les tests remplacent Polomix et la vérification de session par des faux : aucun
-appel réseau, aucune clé.
+Polomix, la session et les données sont remplacés par des faux
+(`test_fixtures.ts`).
 
-## Contrat futur : tâches structurées (non implémenté)
+## Déploiement (accord du propriétaire requis)
 
-Objectif : permettre à EVOLUP de demander à l'IA une tâche précise pour un
-utilisateur (ex. un calcul de score) sans jamais lui donner un accès libre aux
-données.
+Après les migrations `20261109…` (la fonction lit `profiles`, `metric_catalog`,
+`user_metrics`, `metric_daily_values` et les fonctions de lecture) :
 
-1. **Demande** de l'application :
-   `{ "kind": "task", "task": "<id>",
-   "input": { … } }`. Aujourd'hui refusée
-   (`unsupported_kind`).
-2. **Registre serveur** (dans cette fonction, versionné et testé) : pour chaque
-   `task`, la liste fermée des champs autorisés (ex. `athlete_profiles.level`,
-   `athlete_profiles.weekly_sessions`), le schéma du résultat attendu et sa
-   version. Une tâche absente du registre est refusée.
-3. **Besoins de données** : si l'IA est consultée pour savoir quelles données
-   sont utiles, elle répond `{ "required_fields": [ … ] }`. Le serveur ne garde
-   que l'intersection avec la liste autorisée de la tâche ; tout autre champ est
-   ignoré et journalisé (nom seulement). L'IA ne formule jamais de requête, de
-   table ou de filtre.
-4. **Lecture** : le serveur lit ces champs avec le client Supabase **de
-   l'utilisateur** (RLS appliqué, jamais `service_role`) et n'envoie que le
-   strict nécessaire, sans identifiant ni e-mail.
-5. **Résultat** : l'IA doit répondre en JSON ; le serveur le valide contre le
-   schéma de la tâche (types, bornes, champs connus) et refuse le reste
-   (`coach_bad_response`). Réponse à l'application :
-   `{ "kind": "task",
-   "task": "<id>", "version": 1, "status": "proposal", "result": { … } }`,
-   validée une seconde fois par Flutter.
-6. **Effets** : un résultat n'écrit rien par lui-même. Toute modification
-   (programme, objectifs…) est une proposition présentée à l'utilisateur, puis
-   appliquée par du code déterministe après son accord (SPEC_PROJECT.md §0.6).
+```powershell
+npx supabase functions deploy coach-chat --use-api
+```
 
-Avant d'implémenter une tâche : définir ses règles métier et sa formule
-(reproductibles et testables), le consentement à l'envoi de données, la
-persistance éventuelle (migration), et les tests de validation.
+Puis, dans l'app : Paramètres → Polomix → « Tester la compatibilité », puis une
+question et une saisie réelles.

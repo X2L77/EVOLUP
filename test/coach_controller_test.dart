@@ -96,6 +96,39 @@ void main() {
     expect(chat.messages, isEmpty);
   });
 
+  test(
+    'a form action becomes an action item, never a Polomix message',
+    () async {
+      final repository = FakeCoachRepository()
+        ..nextReply = const CoachReply(
+          action: CoachAction(metricSlug: 'tractions', suggestedValue: 8),
+        );
+      final chat = CoachController(repository);
+      expect(await chat.send('Je viens de faire 8 tractions.'), isTrue);
+      expect(chat.messages.map((m) => m.author), [
+        CoachAuthor.user,
+        CoachAuthor.action,
+      ]);
+      expect(chat.messages.last.action!.metricSlug, 'tractions');
+      expect(chat.pendingAction, same(chat.messages.last));
+      chat.consumeAction();
+      expect(chat.pendingAction, isNull);
+    },
+  );
+
+  test('a Polomix reply keeps the list of consulted metrics', () async {
+    final repository = FakeCoachRepository()
+      ..nextReply = const CoachReply(
+        text: 'Vous progressez.',
+        consultedMetrics: ['tractions'],
+      );
+    final chat = CoachController(repository);
+    await chat.send('Comment évoluent mes tractions ?');
+    expect(chat.messages.last.author, CoachAuthor.coach);
+    expect(chat.messages.last.consultedMetrics, ['tractions']);
+    expect(chat.pendingAction, isNull);
+  });
+
   test('a reply arriving after dispose is ignored safely', () async {
     final repository = FakeCoachRepository(manual: true);
     final chat = CoachController(repository);

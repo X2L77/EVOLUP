@@ -1,73 +1,131 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../auth/auth_error.dart';
 import '../auth/auth_repository.dart';
 import '../coach/coach_repository.dart';
-import '../data/athlete_profile.dart';
-import '../data/athlete_profile_repository.dart';
-import '../data/questionnaire_draft_store.dart';
+import '../data/data_error.dart';
+import '../data/device_timezone.dart';
+import '../data/metrics/metrics_repository.dart';
+import '../data/profile/profile_repository.dart';
 import '../features/auth/password_recovery_screen.dart';
 import '../features/auth/sign_in_screen.dart';
-import '../features/coach/coach_screen.dart';
-import '../features/home/home_screen.dart';
-import '../features/onboarding/questionnaire_screen.dart';
 import '../theme/evolup_theme.dart';
+import 'session/app_session.dart';
+import 'session/metrics_controller.dart';
 import 'shell/app_shell.dart';
 import 'widgets/evolup_background.dart';
 import 'widgets/glass_card.dart';
+import 'widgets/state_views.dart';
 
-class EvolupApp extends StatelessWidget {
+/// Repositories of the signed-in part of the app. `null` in [EvolupApp]
+/// means Supabase is not configured.
+class SessionServices {
+  const SessionServices({
+    required this.profiles,
+    required this.metrics,
+    this.coach,
+    this.deviceTimezone = const PlatformDeviceTimezone(),
+  });
+
+  final ProfileRepository profiles;
+  final MetricsRepository metrics;
+  final CoachRepository? coach;
+  final DeviceTimezone deviceTimezone;
+}
+
+class EvolupApp extends StatefulWidget {
   const EvolupApp({
     required this.authRepository,
-    required this.profileRepository,
-    required this.draftStore,
-    this.coachRepository,
+    required this.services,
     this.initializationError,
     super.key,
   });
 
   final AuthRepository? authRepository;
-  final AthleteProfileRepository? profileRepository;
-  final QuestionnaireDraftStore draftStore;
-  final CoachRepository? coachRepository;
+  final SessionServices? services;
   final String? initializationError;
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'EVOLUP',
-    debugShowCheckedModeBanner: false,
-    theme: buildEvolupBrandTheme(),
-    home: AppGate(
-      authRepository: authRepository,
-      profileRepository: profileRepository,
-      draftStore: draftStore,
-      coachRepository: coachRepository,
-      initializationError: initializationError,
+  State<EvolupApp> createState() => _EvolupAppState();
+}
+
+class _EvolupAppState extends State<EvolupApp> {
+  final _session = ValueNotifier<SignedInSession?>(null);
+  final _navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  void dispose() {
+    _session.value?.dispose();
+    _session.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder(
+    valueListenable: _session,
+    builder: (context, session, _) => ListenableBuilder(
+      listenable: session?.profile ?? _session,
+      builder: (context, _) {
+        // Signed out: the fixed EVOLUP identity; signed in: the user's
+        // palette and mode.
+        final colors = session == null
+            ? EvolupColors.brand
+            : EvolupColors.resolve(session.profile.profile.appearance);
+        return MaterialApp(
+          title: 'EVOLUP',
+          debugShowCheckedModeBanner: false,
+          navigatorKey: _navigatorKey,
+          theme: buildEvolupTheme(colors),
+          locale: const Locale('fr'),
+          supportedLocales: const [Locale('fr')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          builder: (context, child) =>
+              SessionScope(session: session, child: child!),
+          home: AppGate(
+            authRepository: widget.authRepository,
+            services: widget.services,
+            initializationError: widget.initializationError,
+            onSession: (value) {
+              final previous = _session.value;
+              if (identical(previous, value)) return;
+              _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+              _session.value = value;
+              // Disposed once the pages that listen to it are gone.
+              if (previous != null) {
+                WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => previous.dispose(),
+                );
+              }
+            },
+          ),
+        );
+      },
     ),
   );
 }
 
-/// Chooses the screen: password recovery → sign-in → questionnaire (no
-/// profile yet, or editing) → [AppShell] (home and the other main
-/// destinations). A session alone never means a completed profile: the
-/// profile row is loaded for every signed-in user.
+/// Chooses the screen: password recovery → sign-in → loading of the
+/// profile and the catalog → [AppShell]. The profile is created on the
+/// first sign-in (no questionnaire).
 class AppGate extends StatefulWidget {
   const AppGate({
     required this.authRepository,
-    required this.profileRepository,
-    required this.draftStore,
-    this.coachRepository,
+    required this.services,
+    required this.onSession,
     this.initializationError,
     super.key,
   });
 
   final AuthRepository? authRepository;
-  final AthleteProfileRepository? profileRepository;
-  final QuestionnaireDraftStore draftStore;
-  final CoachRepository? coachRepository;
+  final SessionServices? services;
   final String? initializationError;
+
+  /// Publishes the signed-in session (or `null` after sign-out) above the
+  /// navigator.
+  final ValueChanged<SignedInSession?> onSession;
 
   @override
   State<AppGate> createState() => _AppGateState();
@@ -78,10 +136,9 @@ class _AppGateState extends State<AppGate> {
   StreamSubscription<void>? _passwordRecoverySubscription;
   StreamSubscription<AuthFailure>? _authFailureSubscription;
   String? _userId;
-  AthleteProfile? _profile;
+  SignedInSession? _session;
   Object? _loadError;
   bool _loading = true;
-  bool _editingProfile = false;
   bool _passwordRecovery = false;
   AuthFailure? _authFailure;
 
@@ -113,63 +170,61 @@ class _AppGateState extends State<AppGate> {
     if (_userId == null) {
       _loading = false;
     } else {
-      unawaited(_loadProfile(_userId!));
+      unawaited(_openSession(_userId!));
     }
+  }
+
+  void _publish(SignedInSession? session) {
+    _session = session;
+    widget.onSession(session);
   }
 
   Future<void> _onUserChanged(String? userId) async {
     if (!mounted || userId == _userId) return;
     setState(() {
       _userId = userId;
-      _profile = null;
       _loadError = null;
-      _editingProfile = false;
       _loading = userId != null;
       if (userId != null) _authFailure = null;
     });
-    if (userId != null) await _loadProfile(userId);
+    _publish(null);
+    if (userId != null) await _openSession(userId);
   }
 
-  Future<void> _loadProfile(String userId) async {
-    final repository = widget.profileRepository;
-    if (repository == null) return;
+  Future<void> _openSession(String userId) async {
+    final services = widget.services;
+    final auth = widget.authRepository;
+    if (services == null || auth == null) return;
+    MetricsController? metrics;
     try {
-      final profile = await repository.loadCurrent();
-      if (!mounted || userId != _userId) return;
-      setState(() {
-        _profile = profile;
-        _loading = false;
-      });
+      final timezone = await services.deviceTimezone.current() ?? 'UTC';
+      final profile = await services.profiles.loadOrCreate(timezone: timezone);
+      metrics = MetricsController(services.metrics);
+      await metrics.load();
+      if (!mounted || userId != _userId) {
+        metrics.dispose();
+        return;
+      }
+      _publish(
+        SignedInSession(
+          userId: userId,
+          email: auth.currentEmail,
+          profile: ProfileController(services.profiles, profile),
+          metrics: metrics,
+          coach: services.coach,
+          deviceTimezone: services.deviceTimezone,
+          signOut: _signOut,
+        ),
+      );
+      setState(() => _loading = false);
     } on Object catch (error) {
+      metrics?.dispose();
       if (!mounted || userId != _userId) return;
       setState(() {
         _loadError = error;
         _loading = false;
       });
     }
-  }
-
-  /// Saves the questionnaire. The screen stays on the confirmation until the
-  /// user continues ([_onQuestionnaireFinished]).
-  Future<void> _saveProfile(AthleteProfile profile) async {
-    final userId = _userId;
-    final repository = widget.profileRepository;
-    if (userId == null || repository == null) {
-      throw StateError('Aucune session Supabase active.');
-    }
-    await repository.saveCurrent(profile);
-    try {
-      await widget.draftStore.clear(userId);
-    } on Object {
-      // The profile is saved; a stale local draft is ignored once it exists.
-    }
-  }
-
-  void _onQuestionnaireFinished(AthleteProfile profile) {
-    setState(() {
-      _profile = profile;
-      _editingProfile = false;
-    });
   }
 
   Future<void> _signOut() async {
@@ -196,7 +251,6 @@ class _AppGateState extends State<AppGate> {
   @override
   Widget build(BuildContext context) {
     final auth = widget.authRepository;
-    final profileRepository = widget.profileRepository;
     if (_passwordRecovery && auth != null) {
       return PasswordRecoveryScreen(onUpdatePassword: _updatePassword);
     }
@@ -204,11 +258,11 @@ class _AppGateState extends State<AppGate> {
       return const EvolupBackground(
         child: Scaffold(
           backgroundColor: Colors.transparent,
-          body: Center(child: CircularProgressIndicator()),
+          body: LoadingView(label: 'Chargement de vos données'),
         ),
       );
     }
-    if (auth == null || profileRepository == null) {
+    if (auth == null || widget.services == null) {
       return SignInScreen(
         authRepository: null,
         configurationMessage:
@@ -221,47 +275,23 @@ class _AppGateState extends State<AppGate> {
     if (userId == null) {
       return SignInScreen(authRepository: auth, initialFailure: _authFailure);
     }
-    if (_loadError != null) {
+    final error = _loadError;
+    if (error != null || _session == null) {
       return _ErrorScreen(
-        message: _loadError is Exception
-            ? 'Impossible de charger votre profil. Vérifiez votre connexion, '
-                  'puis réessayez.'
-            : 'Une erreur inattendue est survenue. Réessayez.',
+        message: error == null
+            ? dataFailureMessage(DataFailure.unknown)
+            : dataErrorMessage(error),
         onRetry: () {
           setState(() {
             _loading = true;
             _loadError = null;
           });
-          unawaited(_loadProfile(userId));
+          unawaited(_openSession(userId));
         },
         onSignOut: () => unawaited(_signOut()),
       );
     }
-    final profile = _profile;
-    if (profile == null || _editingProfile) {
-      return QuestionnaireScreen(
-        key: ValueKey(
-          'questionnaire-$userId-${_editingProfile ? 'edit' : 'new'}',
-        ),
-        userId: userId,
-        draftStore: widget.draftStore,
-        initialProfile: _editingProfile ? profile : null,
-        onSave: _saveProfile,
-        onFinished: _onQuestionnaireFinished,
-        onSignOut: _signOut,
-        onCancel: _editingProfile
-            ? () => setState(() => _editingProfile = false)
-            : null,
-      );
-    }
-    return AppShell(
-      home: HomeScreen(
-        profile: profile,
-        onEditProfile: () => setState(() => _editingProfile = true),
-        onSignOut: _signOut,
-      ),
-      coach: CoachScreen(repository: widget.coachRepository),
-    );
+    return const AppShell();
   }
 }
 
@@ -290,13 +320,17 @@ class _ErrorScreen extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.cloud_off_outlined,
                       size: 44,
-                      color: EvolupColors.textSecondary,
+                      color: EvolupColors.of(context).textSecondary,
                     ),
                     const SizedBox(height: 20),
-                    Text(message, textAlign: TextAlign.center),
+                    Text(
+                      'Impossible de charger vos données. $message',
+                      key: const Key('session-error'),
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: 20),
                     FilledButton(
                       onPressed: onRetry,

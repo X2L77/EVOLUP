@@ -7,9 +7,10 @@ import 'package:my_training/app/widgets/evolup_background.dart';
 import 'package:my_training/app/widgets/glass_card.dart';
 import 'package:my_training/auth/auth_error.dart';
 import 'package:my_training/auth/social_auth_provider.dart';
+import 'package:my_training/data/profile/user_profile.dart';
 import 'package:my_training/features/auth/sign_in_screen.dart';
-import 'package:my_training/features/home/home_screen.dart';
-import 'package:my_training/features/onboarding/questionnaire_screen.dart';
+import 'package:my_training/features/overview/overview_screen.dart';
+import 'package:my_training/theme/evolup_theme.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'support/fake_auth_repository.dart';
@@ -54,7 +55,10 @@ void main() {
   group('Sign-in screen', () {
     testWidgets('follows the build guide', (tester) async {
       final auth = FakeAuthRepository();
-      await pumpApp(tester, auth: auth, profiles: FakeProfileRepository());
+      await pumpApp(
+        tester,
+        TestWorld(auth: auth, profiles: FakeProfileRepository()),
+      );
 
       expect(find.byType(SignInScreen), findsOneWidget);
       expect(find.byType(EvolupBackground), findsOneWidget);
@@ -299,7 +303,7 @@ void main() {
       await tapKey(tester, 'auth-submit');
 
       expect(find.text('Supabase n’est pas configuré.'), findsOneWidget);
-      expect(find.byType(HomeScreen), findsNothing);
+      expect(find.byType(OverviewScreen), findsNothing);
     });
 
     testWidgets('scrolls with the keyboard on narrow phones', (tester) async {
@@ -401,7 +405,10 @@ void main() {
       tester,
     ) async {
       final auth = FakeAuthRepository();
-      await pumpApp(tester, auth: auth, profiles: FakeProfileRepository());
+      await pumpApp(
+        tester,
+        TestWorld(auth: auth, profiles: FakeProfileRepository()),
+      );
 
       auth.failures.add(AuthFailure.oauthCancelled);
       await tester.pumpAndSettle();
@@ -411,44 +418,41 @@ void main() {
     });
   });
 
-  group('Session and profile routing', () {
-    testWidgets('a session without a profile opens the questionnaire', (
+  group('Session routing', () {
+    testWidgets(
+      'a session opens the overview; the profile is created with the device zone',
+      (tester) async {
+        final auth = FakeAuthRepository(currentUserId: 'user-1');
+        final profiles = FakeProfileRepository();
+        await pumpApp(tester, TestWorld(auth: auth, profiles: profiles));
+
+        expect(find.byType(OverviewScreen), findsOneWidget);
+        expect(profiles.createdWithTimezone, 'Europe/Paris');
+        // No sports questionnaire any more.
+        expect(find.textContaining('Séances par semaine'), findsNothing);
+        await auth.dispose();
+      },
+    );
+
+    testWidgets('an unknown device zone starts the profile in UTC', (
       tester,
     ) async {
       final auth = FakeAuthRepository(currentUserId: 'user-1');
       final profiles = FakeProfileRepository();
-      await pumpApp(tester, auth: auth, profiles: profiles);
-
-      expect(profiles.loadCalls, 1);
-      expect(find.byType(QuestionnaireScreen), findsOneWidget);
-      expect(find.byType(HomeScreen), findsNothing);
-      await auth.dispose();
-    });
-
-    testWidgets('a restored session with a profile opens the home screen', (
-      tester,
-    ) async {
-      final auth = FakeAuthRepository(currentUserId: 'user-1');
       await pumpApp(
         tester,
-        auth: auth,
-        profiles: FakeProfileRepository(profile: completedProfile),
+        TestWorld(auth: auth, profiles: profiles, deviceZone: null),
       );
-
-      expect(find.byType(HomeScreen), findsOneWidget);
-      expect(find.byType(QuestionnaireScreen), findsNothing);
-      expect(
-        find.text('3 par semaine · Lundi, Mercredi, Vendredi'),
-        findsOneWidget,
-      );
+      expect(profiles.createdWithTimezone, 'UTC');
       await auth.dispose();
     });
 
-    testWidgets('account creation then code leads to the questionnaire', (
-      tester,
-    ) async {
+    testWidgets('account creation then code opens the app', (tester) async {
       final auth = FakeAuthRepository();
-      await pumpApp(tester, auth: auth, profiles: FakeProfileRepository());
+      await pumpApp(
+        tester,
+        TestWorld(auth: auth, profiles: FakeProfileRepository()),
+      );
       await fillCredentials(tester, email: 'new@evolup.fr');
       await tapKey(tester, 'auth-create');
 
@@ -469,49 +473,40 @@ void main() {
       await tester.enterText(find.byKey(const Key('auth-code')), '123456');
       await tapKey(tester, 'auth-verify');
       expect(find.textContaining('Code incorrect ou expiré'), findsOneWidget);
-      expect(find.byType(QuestionnaireScreen), findsNothing);
+      expect(find.byType(OverviewScreen), findsNothing);
 
       auth.verifyError = null;
       await tapKey(tester, 'auth-verify');
       expect(auth.lastVerifiedEmail, 'new@evolup.fr');
       expect(auth.lastVerifiedCode, '123456');
-      expect(find.byType(QuestionnaireScreen), findsOneWidget);
+      expect(find.byType(OverviewScreen), findsOneWidget);
       await auth.dispose();
     });
 
-    testWidgets(
-      'a profile loading error offers a retry, not the questionnaire',
-      (tester) async {
-        final auth = FakeAuthRepository(currentUserId: 'user-1');
-        final profiles = FakeProfileRepository()
-          ..loadError = TimeoutException('offline');
-        await pumpApp(tester, auth: auth, profiles: profiles);
+    testWidgets('a loading error offers a retry, never an empty app', (
+      tester,
+    ) async {
+      final auth = FakeAuthRepository(currentUserId: 'user-1');
+      final profiles = FakeProfileRepository()
+        ..loadError = TimeoutException('offline');
+      await pumpApp(tester, TestWorld(auth: auth, profiles: profiles));
 
-        expect(
-          find.textContaining('Impossible de charger votre profil'),
-          findsOneWidget,
-        );
-        expect(find.byType(QuestionnaireScreen), findsNothing);
+      expect(find.byKey(const Key('session-error')), findsOneWidget);
+      expect(find.textContaining('Connexion impossible'), findsOneWidget);
+      expect(find.byType(OverviewScreen), findsNothing);
 
-        profiles
-          ..loadError = null
-          ..profile = completedProfile;
-        await tester.tap(find.text('Réessayer'));
-        await tester.pumpAndSettle();
-        expect(find.byType(HomeScreen), findsOneWidget);
-        await auth.dispose();
-      },
-    );
+      profiles.loadError = null;
+      await tester.tap(find.text('Réessayer'));
+      await tester.pumpAndSettle();
+      expect(find.byType(OverviewScreen), findsOneWidget);
+      await auth.dispose();
+    });
 
     testWidgets('password recovery updates through the auth repository', (
       tester,
     ) async {
       final auth = FakeAuthRepository();
-      await pumpApp(
-        tester,
-        auth: auth,
-        profiles: FakeProfileRepository(profile: completedProfile),
-      );
+      await pumpApp(tester, TestWorld(auth: auth));
       auth
         ..openSession()
         ..recoveryChanges.add(null);
@@ -546,23 +541,44 @@ void main() {
       await tester.tap(find.text('Enregistrer le mot de passe'));
       await tester.pumpAndSettle();
       expect(auth.passwordUpdates, 1);
-      expect(find.byType(HomeScreen), findsOneWidget);
+      expect(find.byType(OverviewScreen), findsOneWidget);
       await auth.dispose();
     });
 
-    testWidgets('signing out from home returns to the sign-in screen', (
+    testWidgets('signing out from the settings returns to the sign-in screen', (
       tester,
     ) async {
       final auth = FakeAuthRepository(currentUserId: 'user-1');
-      await pumpApp(
-        tester,
-        auth: auth,
-        profiles: FakeProfileRepository(profile: completedProfile),
-      );
-      await tester.tap(find.byTooltip('Se déconnecter'));
-      await tester.pumpAndSettle();
+      await pumpApp(tester, TestWorld(auth: auth));
+      await openSection(tester, 'settings');
+      await tapKey(tester, 'settings-sign-out');
       expect(auth.signOutCalls, 1);
       expect(find.byType(SignInScreen), findsOneWidget);
+      await auth.dispose();
+    });
+
+    testWidgets('the saved palette and mode apply in the app, not on sign-in', (
+      tester,
+    ) async {
+      const gold = AppAppearance(
+        palette: AppPalette.gold,
+        mode: AppThemeMode.light,
+      );
+      final auth = FakeAuthRepository(currentUserId: 'user-1');
+      final profiles = FakeProfileRepository(
+        profile: const UserProfile(timezone: 'Europe/Paris', appearance: gold),
+      );
+      await pumpApp(tester, TestWorld(auth: auth, profiles: profiles));
+      final overview = tester.element(find.byType(OverviewScreen));
+      expect(
+        EvolupColors.of(overview).background,
+        EvolupColors.resolve(gold).background,
+      );
+
+      await openSection(tester, 'settings');
+      await tapKey(tester, 'settings-sign-out');
+      final signIn = tester.element(find.byType(SignInScreen));
+      expect(EvolupColors.of(signIn).background, EvolupBrand.background);
       await auth.dispose();
     });
   });

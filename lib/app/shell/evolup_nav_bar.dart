@@ -24,8 +24,8 @@ class EvolupNavItem {
 /// Floating translucent navigation bar, made of the same glass as the
 /// sign-in card and detached from the screen edges and system bars.
 ///
-/// Items share the width equally, so the middle one sits exactly in the
-/// center. The bar is hidden while the keyboard is open.
+/// Items share the width equally; long labels shrink to fit narrow
+/// screens. The bar is hidden while the keyboard is open.
 class EvolupNavBar extends StatelessWidget {
   const EvolupNavBar({
     required this.items,
@@ -39,13 +39,14 @@ class EvolupNavBar extends StatelessWidget {
   final ValueChanged<int> onSelected;
 
   static const _radius = 28.0;
-  static const _maxWidth = 440.0;
+  static const _maxWidth = 520.0;
 
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
     if (media.viewInsets.bottom > 0) return const SizedBox.shrink();
-    final side = media.size.width < 360 ? 12.0 : 20.0;
+    final colors = EvolupColors.of(context);
+    final side = media.size.width < 360 ? 8.0 : 14.0;
     final bottom = math.max(16.0, media.viewPadding.bottom + 8);
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: 1.3,
@@ -68,8 +69,8 @@ class EvolupNavBar extends StatelessWidget {
               ),
               child: GlassCard(
                 radius: _radius,
-                padding: const EdgeInsets.all(6),
-                tint: EvolupColors.navBarTint,
+                padding: const EdgeInsets.all(5),
+                tint: colors.navBarTint,
                 child: Row(
                   children: [
                     for (var i = 0; i < items.length; i++)
@@ -104,9 +105,8 @@ class _NavButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected
-        ? EvolupColors.textPrimary
-        : EvolupColors.textSecondary;
+    final colors = EvolupColors.of(context);
+    final color = selected ? colors.textPrimary : colors.textSecondary;
     final shape = BorderRadius.circular(22);
     return MergeSemantics(
       key: item.key,
@@ -124,11 +124,11 @@ class _NavButton extends StatelessWidget {
                   : const Duration(milliseconds: 180),
               curve: Curves.easeOut,
               constraints: const BoxConstraints(minHeight: 52),
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 7),
               decoration: BoxDecoration(
                 color: selected
-                    ? EvolupColors.navSelected
-                    : EvolupColors.navSelected.withValues(alpha: 0),
+                    ? colors.navSelected
+                    : colors.navSelected.withValues(alpha: 0),
                 borderRadius: shape,
               ),
               child: Column(
@@ -137,19 +137,23 @@ class _NavButton extends StatelessWidget {
                 children: [
                   Icon(
                     selected ? item.selectedIcon : item.icon,
-                    size: 24,
+                    size: 23,
                     color: color,
                   ),
                   const SizedBox(height: 3),
-                  Text(
-                    item.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 11.5,
-                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                      letterSpacing: 0.1,
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      item.label,
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 11,
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        letterSpacing: 0,
+                      ),
                     ),
                   ),
                 ],
