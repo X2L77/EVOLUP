@@ -73,7 +73,11 @@ void main() {
       );
       final repository = SupabaseMetricsRepository(server.client);
       Overview? overview;
-      unawaited(repository.loadOverview().then((o) => overview = o));
+      unawaited(
+        repository
+            .loadOverview(today: LocalDate(2026, 11, 11))
+            .then((o) => overview = o),
+      );
       await tester.pump();
       expect(overview?.daysRecorded, 3);
     });
@@ -83,7 +87,7 @@ void main() {
     ) async {
       final server = _Server((_) => Completer<http.Response>().future);
       final repository = SupabaseMetricsRepository(server.client);
-      final pending = repository.loadOverview();
+      final pending = repository.loadOverview(today: LocalDate(2026, 11, 11));
       final error = await _errorOf(
         tester,
         pending,
@@ -117,7 +121,9 @@ void main() {
       );
       final error = await _errorOf(
         tester,
-        SupabaseMetricsRepository(server.client).loadOverview(),
+        SupabaseMetricsRepository(
+          server.client,
+        ).loadOverview(today: LocalDate(2026, 11, 11)),
       );
       expect(error, _fails(DataFailure.network));
     });
@@ -128,7 +134,9 @@ void main() {
       );
       final error = await _errorOf(
         tester,
-        SupabaseMetricsRepository(server.client).loadOverview(),
+        SupabaseMetricsRepository(
+          server.client,
+        ).loadOverview(today: LocalDate(2026, 11, 11)),
       );
       expect(error, _fails(DataFailure.server));
       expect(

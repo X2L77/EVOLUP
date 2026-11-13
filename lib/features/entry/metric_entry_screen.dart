@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/format/dates.dart';
 import '../../app/session/app_session.dart';
+import '../../app/session/local_day_clock.dart';
 import '../../app/widgets/button_spinner.dart';
 import '../../app/widgets/evolup_page.dart';
 import '../../app/widgets/glass_card.dart';
@@ -17,8 +18,11 @@ import '../metrics/metric_texts.dart';
 import 'entry_controller.dart';
 import 'widgets/value_input.dart';
 
-/// Entry form of one metric: value in its unit, local date (today by
-/// default, editable for a past day) and « Valider ».
+/// Entry form of one metric: value in its unit, local date (today on the
+/// device by default, editable back to one year, never in the future) and
+/// « Valider ». The date follows a change of day while the form is open
+/// (see `EntryController`), and an identical value already recorded that
+/// day is only counted once the user confirms it is a new measure.
 ///
 /// Opened from Mes données, a metric's page, the overview, or Polomix (then
 /// with [suggestedValue] pre-filled). Only « Valider » writes to Supabase.
@@ -52,6 +56,7 @@ class _MetricEntryScreenState extends State<MetricEntryScreen> {
   final _durations = <DurationField, TextEditingController>{};
   final _focus = FocusNode();
   Animation<double>? _routeAnimation;
+  LocalDayClock? _day;
 
   EntryController get _entry => _controller!;
 
@@ -60,6 +65,8 @@ class _MetricEntryScreenState extends State<MetricEntryScreen> {
     super.didChangeDependencies();
     if (_controller == null) {
       final session = SessionScope.of(context);
+      final fixed = widget.today;
+      final day = _day = session.day..addListener(_onDayChanged);
       _controller = EntryController(
         definition: widget.definition,
         tracked: widget.tracked,
@@ -67,7 +74,7 @@ class _MetricEntryScreenState extends State<MetricEntryScreen> {
         timezone: () async =>
             await session.deviceTimezone.current() ??
             session.profile.profile.timezone,
-        today: widget.today,
+        clock: fixed == null ? () => day.today : () => fixed,
         suggestedValue: widget.suggestedValue,
       )..addListener(_onChanged);
       _number.text = _entry.numberText;
@@ -102,8 +109,13 @@ class _MetricEntryScreenState extends State<MetricEntryScreen> {
 
   void _onChanged() => setState(() {});
 
+  /// Midnight, time zone or return to the foreground: the date of the form
+  /// is checked again.
+  void _onDayChanged() => _entry.refreshDay();
+
   @override
   void dispose() {
+    _day?.removeListener(_onDayChanged);
     _routeAnimation?.removeStatusListener(_onRouteStatus);
     _controller?.dispose();
     _number.dispose();
@@ -114,15 +126,35 @@ class _MetricEntryScreenState extends State<MetricEntryScreen> {
     super.dispose();
   }
 
+  /// From the same calendar day one year ago to today.
   Future<void> _pickDate() async {
+    _entry.refreshDay();
     final picked = await showDatePicker(
       context: context,
       initialDate: _entry.date.toDateTime(),
-      firstDate: DateTime(1900),
+      firstDate: _entry.earliestDate.toDateTime(),
       lastDate: _entry.today.toDateTime(),
       helpText: 'Date de la mesure',
     );
     if (picked != null) _entry.setDate(LocalDate.fromDateTime(picked));
+  }
+
+  String _dayChangeMessage(DayChange change) {
+    final date = formatLongDate(_entry.date);
+    return switch (change) {
+      DayChange.followed =>
+        'Le jour a changé : la date de la mesure est maintenant aujourd’hui, '
+            '$date.',
+      DayChange.kept =>
+        'Le jour a changé. La date que vous avez choisie est conservée : '
+            '$date.',
+      DayChange.clampedToToday =>
+        'Le jour a changé : la date choisie serait dans le futur, elle est '
+            'ramenée à aujourd’hui, $date.',
+      DayChange.clampedToEarliest =>
+        'Le jour a changé : la date choisie dépasserait un an, elle est '
+            'ramenée au $date.',
+    };
   }
 
   Future<void> _submit() async {
@@ -220,7 +252,11 @@ class _MetricEntryScreenState extends State<MetricEntryScreen> {
                   child: PressScale(
                     child: FilledButton(
                       key: const Key('entry-submit'),
-                      onPressed: _entry.saving ? null : _submit,
+                      // While a duplicate waits for the user's answer, the
+                      // two choices below the form replace it.
+                      onPressed: _entry.saving || _entry.isDuplicate
+                          ? null
+                          : _submit,
                       child: _entry.saving
                           ? const ButtonSpinner()
                           : const Text('Valider'),
@@ -324,6 +360,14 @@ class _MetricEntryScreenState extends State<MetricEntryScreen> {
                       key: const Key('entry-date'),
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
+                    Text(
+                      'Jusqu’à un an en arrière, depuis le '
+                      '${formatDate(_entry.earliestDate)}.',
+                      key: const Key('entry-date-limit'),
+                      style: textTheme.bodySmall?.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -340,14 +384,31 @@ class _MetricEntryScreenState extends State<MetricEntryScreen> {
           '${aggregationExplanation(definition)} $duplicateRule',
           style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
         ),
-        if (_entry.isDuplicate) ...[
+        if (_entry.dayChange case final change?) ...[
           const SizedBox(height: 14),
           StatusMessage(
-            key: const Key('entry-duplicate'),
+            key: const Key('entry-day-changed'),
             message:
-                'Cette valeur est déjà enregistrée pour le '
-                '${formatDate(_entry.date)} : elle n’a pas été comptée une '
-                'seconde fois.',
+                '${_dayChangeMessage(change)} Vérifiez-la, puis validez '
+                'de nouveau.',
+          ),
+        ],
+        if (_entry.isDuplicate) ...[
+          const SizedBox(height: 14),
+          _DuplicateQuestion(
+            date: _entry.date,
+            saving: _entry.saving,
+            onNewMeasure: () => unawaited(_entry.confirmDuplicate()),
+            onMistake: _entry.rejectDuplicate,
+          ),
+        ],
+        if (_entry.duplicateRejected) ...[
+          const SizedBox(height: 14),
+          const StatusMessage(
+            key: Key('entry-duplicate-rejected'),
+            message:
+                'Rien n’a été enregistré : la valeur déjà saisie reste comptée '
+                'une seule fois. Corrigez la valeur si besoin.',
           ),
         ],
         if (_entry.submitError != null) ...[
@@ -361,6 +422,59 @@ class _MetricEntryScreenState extends State<MetricEntryScreen> {
       ],
     );
   }
+}
+
+/// The same value is already recorded that day: a new measure, or a typing
+/// error? Nothing is counted before the answer.
+class _DuplicateQuestion extends StatelessWidget {
+  const _DuplicateQuestion({
+    required this.date,
+    required this.saving,
+    required this.onNewMeasure,
+    required this.onMistake,
+  });
+
+  final LocalDate date;
+  final bool saving;
+  final VoidCallback onNewMeasure;
+  final VoidCallback onMistake;
+
+  @override
+  Widget build(BuildContext context) => GlassCard(
+    key: const Key('entry-duplicate'),
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Cette valeur est déjà enregistrée pour le ${formatDate(date)}. '
+          'S’agit-il d’une nouvelle mesure ?',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Rien n’est compté tant que vous n’avez pas répondu.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: EvolupColors.of(context).textSecondary,
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton(
+          key: const Key('entry-duplicate-new'),
+          onPressed: saving ? null : onNewMeasure,
+          child: saving
+              ? const ButtonSpinner()
+              : const Text('Oui, nouvelle mesure'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          key: const Key('entry-duplicate-mistake'),
+          onPressed: saving ? null : onMistake,
+          child: const Text('Non, erreur de saisie'),
+        ),
+      ],
+    ),
+  );
 }
 
 class _SavedPanel extends StatelessWidget {

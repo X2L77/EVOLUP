@@ -21,10 +21,16 @@ import '../../data/metrics/metrics_repository.dart';
 ///
 /// The overview (`get_overview`) is shared by the pages through
 /// [loadOverview]: one request at a time, its answer reused until the data
-/// changes or it gets older than [overviewMaxAge].
+/// or the device's day change, or it gets older than [overviewMaxAge]. The
+/// chart series are shared the same way through [loadSeries], so two pages
+/// or widgets asking for the same series send one request.
 class MetricsController extends ChangeNotifier {
-  MetricsController(this.repository, {DateTime Function()? now})
-    : _now = now ?? DateTime.now;
+  MetricsController(
+    this.repository, {
+    DateTime Function()? now,
+    LocalDate Function()? today,
+  }) : _now = now ?? DateTime.now,
+       _today = today ?? LocalDate.today;
 
   /// How long a loaded overview is reused. Every change made from this
   /// device invalidates it at once; this bound only covers what changes
@@ -34,6 +40,9 @@ class MetricsController extends ChangeNotifier {
 
   final MetricsRepository repository;
   final DateTime Function() _now;
+
+  /// The device's day (the session's `LocalDayClock`), sent to the overview.
+  final LocalDate Function() _today;
   List<MetricCategory> _categories = const [];
   List<MetricDefinition> _catalog = const [];
   List<TrackedMetric> _tracked = const [];
@@ -52,6 +61,7 @@ class MetricsController extends ChangeNotifier {
   Future<void>? _pendingDeleteAll;
   _OverviewRead? _overview;
   _OverviewRead? _pendingOverview;
+  final _series = <_SeriesQuery, _SeriesRead>{};
 
   List<MetricCategory> get categories => _categories;
   List<MetricDefinition> get catalog => _catalog;
@@ -244,7 +254,11 @@ class MetricsController extends ChangeNotifier {
     }
     final pending = _pendingOverview;
     if (pending != null && pending.state == state) return pending.answer;
-    final read = _OverviewRead(state, _now(), repository.loadOverview());
+    final read = _OverviewRead(
+      state,
+      _now(),
+      repository.loadOverview(today: state.$3),
+    );
     _pendingOverview = read;
     unawaited(
       read.answer.then<void>(
@@ -261,9 +275,55 @@ class MetricsController extends ChangeNotifier {
     return read.answer;
   }
 
-  /// What the overview depends on: the recorded data ([revision]) and the
-  /// tracked list (active, favourite, added). Any change makes it stale.
-  (int, int) get _overviewState => (_revision, _localChanges);
+  /// What the overview depends on: the recorded data ([revision]), the
+  /// tracked list (active, favourite, added) and the device's day (its
+  /// "today" and 30-day windows). Any change makes it stale.
+  (int, int, LocalDate) get _overviewState =>
+      (_revision, _localChanges, _today());
+
+  /// What a series depends on besides its query: the recorded data and the
+  /// tracked list (its days are explicit, not relative to today).
+  (int, int) get _dataState => (_revision, _localChanges);
+
+  /// The points of a chart, shared: a request running or answered for the
+  /// same query while the data did not change, and not older than
+  /// [overviewMaxAge], is reused instead of sending another one (the
+  /// analysis and the comparison of the statistics ask for the same series).
+  /// Failures are not kept.
+  Future<MetricSeries> loadSeries(
+    String trackedMetricId,
+    LocalDate from,
+    LocalDate to, {
+    SeriesBucket? bucket,
+  }) {
+    final query = _SeriesQuery(trackedMetricId, from, to, bucket);
+    final state = _dataState;
+    final known = _series[query];
+    if (known != null &&
+        known.state == state &&
+        _now().difference(known.askedAt) < overviewMaxAge) {
+      return known.answer;
+    }
+    // Series of an older state are never reused: forget them.
+    _series.removeWhere((_, read) => read.state != state);
+    if (_series.length >= 32) _series.remove(_series.keys.first);
+    final read = _SeriesRead(
+      state,
+      _now(),
+      repository.loadSeries(trackedMetricId, from, to, bucket: bucket),
+    );
+    _series[query] = read;
+    unawaited(
+      read.answer.then<void>(
+        (_) {},
+        onError: (Object _) {
+          // The caller gets the error; the next call asks again.
+          if (identical(_series[query], read)) _series.remove(query);
+        },
+      ),
+    );
+    return read.answer;
+  }
 
   Future<T> _write<T>(Future<T> Function() call) async {
     try {
@@ -319,6 +379,7 @@ class MetricsController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _overview = null;
+    _series.clear();
     super.dispose();
   }
 }
@@ -327,10 +388,43 @@ class MetricsController extends ChangeNotifier {
 class _OverviewRead {
   _OverviewRead(this.state, this.askedAt, this.answer);
 
-  final (int, int) state;
+  final (int, int, LocalDate) state;
 
   /// Age is counted from the request, not the answer: the server read the
   /// data at some point in between.
   final DateTime askedAt;
   final Future<Overview> answer;
+}
+
+@immutable
+class _SeriesQuery {
+  const _SeriesQuery(this.trackedId, this.from, this.to, this.bucket);
+
+  final String trackedId;
+  final LocalDate from;
+  final LocalDate to;
+
+  /// `null` = automatic grouping (the server picks it from the period).
+  final SeriesBucket? bucket;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _SeriesQuery &&
+      other.trackedId == trackedId &&
+      other.from == from &&
+      other.to == to &&
+      other.bucket == bucket;
+
+  @override
+  int get hashCode => Object.hash(trackedId, from, to, bucket);
+}
+
+/// One `get_metric_history` request, with the state of the data when it was
+/// asked.
+class _SeriesRead {
+  _SeriesRead(this.state, this.askedAt, this.answer);
+
+  final (int, int) state;
+  final DateTime askedAt;
+  final Future<MetricSeries> answer;
 }

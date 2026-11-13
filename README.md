@@ -93,10 +93,16 @@ another project: `--dart-define-from-file=config/supabase.local.json`
 | `20261109100200_seed_metric_catalog.sql` | 7 categories, 16 metrics |
 | `20261109100300_create_user_metrics_and_daily_aggregates.sql` | Tracked metrics, daily aggregates, RLS |
 | `20261109100400_create_metric_functions.sql` | Entry, correction, statistics, overview |
+| `20261112100000_entry_rules_and_device_today.sql` | Entries within one year, confirmed duplicates, « Jour » ≤ 365 days, `get_overview(p_today)` |
 
-**Status: all six migrations are applied (the five `20261109…` ones on
-2026-11-09, with the owner's approval).** They are non-destructive (no
-existing table is altered). Future migrations, with the owner's approval:
+**Status: the first six migrations are applied (the five `20261109…` ones on
+2026-11-09, with the owner's approval). `20261112100000` is not applied
+(tested on the local PostgreSQL only); it must be applied before the app
+that calls `get_overview(p_today)` is shipped.** It changes no table, column
+or row: it replaces four functions (`record_metric_entry` and
+`get_overview` gain a parameter with a default, so the former calls, among
+them Polomix v5's `get_overview()`, keep working). Future migrations, with
+the owner's approval:
 
 ```powershell
 npx supabase db push --linked --dry-run   # lists pending migrations
@@ -151,7 +157,9 @@ la compatibilité », a question, and « Je viens de faire 8 tractions ».
 
 ### Deployment order
 
-1. Migrations (`db push`) — the new app needs these tables.
+1. Migrations (`db push`) — the new app needs these tables and, since
+   2026-11-12, `get_overview(p_today)` and `record_metric_entry(…,
+   p_confirm_duplicate)`.
 2. `coach-chat` v4 — it reads the new tables (the deployed v3 keeps working
    for plain chat; with v3, « État » and « Tester la compatibilité » in the
    settings show an error because v3 does not know these requests).
@@ -161,14 +169,14 @@ la compatibilité », a question, and « Je viens de faire 8 tractions ».
 
 ```powershell
 flutter analyze
-flutter test                                # 126 tests, no network
+flutter test                                # 277 tests, no network
 
 cd supabase/tests/db
 npm install
-npm test                                    # 46 tests, local PostgreSQL 17.11
+npm test                                    # 61 tests, local PostgreSQL 17.11
 
 cd supabase/functions/coach-chat
-npx -y deno@2.9.6 test --no-prompt --allow-read=. *_test.ts   # 43 tests
+npx -y deno@2.9.6 test --no-prompt --allow-read=. *_test.ts   # 54 tests
 ```
 
 The database tests start a throwaway PostgreSQL (package `embedded-postgres`,
@@ -176,7 +184,12 @@ no Docker), apply a minimal Supabase stand-in (`supabase_stub.sql`: API
 roles, `auth.uid()`, default privileges) and every migration, then test
 aggregation, duplicates, idempotency, 30 simultaneous entries, dates and time
 zones, weighted grouping, statistics, RLS with two users, anonymous access
-and catalog protection. They never touch the remote project.
+and catalog protection. They never touch the remote project. Inside each
+rolled-back test transaction, "today" (`private.local_today`) is pinned to
+2026-11-12 12:00 UTC (`PINNED_NOW` in `harness.mjs`), so that the scenario
+dates stay within the one-year entry window whatever the day the suite
+runs; `{ realClock: true }` keeps the real clock. Counts verified on
+2026-11-12.
 
 Verified on 2026-11-09: `flutter build web --release` succeeds; the main
 screens were checked on a 390 × 844 phone viewport (dark Blue and light

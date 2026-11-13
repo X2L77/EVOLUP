@@ -168,7 +168,7 @@ class _OverviewScreenState extends State<OverviewScreen> with RevisionReload {
         definition: d,
         categoryName: metrics.category(d.categoryId)?.name ?? '',
         latest: latest,
-        today: overview.today,
+        today: deviceToday,
         favorite: tracked.isFavorite,
         comparisonText: m == null || latest == null
             ? 'Aucune valeur enregistrée'

@@ -47,6 +47,13 @@ enum DataFailure {
   dailySumExceeded,
   dayNotFound,
   invalidPeriod,
+
+  /// The 'day' grouping was asked for more than 365 days.
+  tooManyPoints,
+
+  /// The device's day sent to the overview exists nowhere on Earth now:
+  /// the device's date is wrong.
+  invalidToday,
   badResponse,
   unknown,
 }
@@ -128,9 +135,9 @@ DataFailure _classifyPostgrest(PostgrestException error) {
     'daily_entry_limit' => DataFailure.dailyEntryLimit,
     'daily_sum_exceeded' => DataFailure.dailySumExceeded,
     'day_not_found' => DataFailure.dayNotFound,
-    'invalid_period' ||
-    'invalid_bucket' ||
-    'too_many_points' => DataFailure.invalidPeriod,
+    'invalid_period' || 'invalid_bucket' => DataFailure.invalidPeriod,
+    'too_many_points' => DataFailure.tooManyPoints,
+    'invalid_today' => DataFailure.invalidToday,
     _ => null,
   };
   if (byMessage != null) return byMessage;
@@ -225,13 +232,21 @@ String dataFailureMessage(DataFailure failure) => switch (failure) {
   DataFailure.invalidTimezone =>
     'Le fuseau horaire n’est pas reconnu. Vérifiez-le dans les Paramètres.',
   DataFailure.dateInFuture => 'La date ne peut pas être dans le futur.',
-  DataFailure.dateTooOld => 'Cette date est trop ancienne.',
+  DataFailure.dateTooOld =>
+    'Les nouvelles saisies sont limitées à la dernière année : choisissez '
+        'une date plus récente.',
   DataFailure.dailyEntryLimit =>
     'Limite de 200 saisies par jour atteinte pour cet indicateur.',
   DataFailure.dailySumExceeded =>
     'Le total de cette journée dépasserait la limite autorisée.',
   DataFailure.dayNotFound => 'Cette journée n’existe plus.',
   DataFailure.invalidPeriod => 'Cette période n’est pas valide.',
+  DataFailure.tooManyPoints =>
+    'Le regroupement par jour est disponible jusqu’à 365 jours. Choisissez '
+        '« Semaine » ou « Mois » pour cette période.',
+  DataFailure.invalidToday =>
+    'La date de votre appareil semble incorrecte. Vérifiez sa date et son '
+        'heure, puis réessayez.',
   DataFailure.badResponse =>
     'Réponse du serveur inutilisable. Réessayez dans un instant.',
   DataFailure.unknown => 'Une erreur inattendue est survenue. Réessayez.',

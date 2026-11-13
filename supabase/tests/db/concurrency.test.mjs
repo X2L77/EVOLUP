@@ -10,6 +10,18 @@ import { asUser, createUser, startDatabase, track } from './harness.mjs';
 const { pool } = await startDatabase();
 const users = [];
 
+// These entries are committed on separate connections: the clock is the
+// real one, so the days are counted back from today in Paris (the window of
+// new entries is the last year).
+async function parisDay(daysAgo) {
+  const { rows } = await pool.query(
+    "select (private.local_today('Europe/Paris') - $1::int)::text as d",
+    [daysAgo],
+  );
+  return rows[0].d;
+}
+const today = await parisDay(0);
+
 async function setup() {
   const client = await pool.connect();
   try {
@@ -33,7 +45,7 @@ async function simultaneously(user, entries) {
       await asUser(client, user);
     }));
     const results = await Promise.all(clients.map(async (client, i) => {
-      const { metric, value, key = randomUUID(), date = '2026-11-02' } = entries[i];
+      const { metric, value, key = randomUUID(), date = today } = entries[i];
       const { rows } = await client.query(
         'select public.record_metric_entry($1, $2, $3, $4, $5, $6) as r',
         [metric, value, 'repetition', date, 'Europe/Paris', key],
@@ -47,7 +59,7 @@ async function simultaneously(user, entries) {
   }
 }
 
-async function dayRow(metric, date = '2026-11-02') {
+async function dayRow(metric, date = today) {
   const { rows } = await pool.query(
     `select sample_count, value_sum::text, value_min::text, value_max::text,
             cardinality(entry_fingerprints) as fingerprints
@@ -103,10 +115,11 @@ describe('concurrency', () => {
 
   test('simultaneous entries on different days create separate rows', async () => {
     const { user, metric } = await setup();
-    const dates = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-01', '2026-10-02'];
+    const [d1, d2, d3] = [await parisDay(3), await parisDay(2), await parisDay(1)];
+    const dates = [d1, d2, d3, d1, d2];
     await simultaneously(user, dates.map((date, i) => ({ metric, value: i + 1, date })));
-    assert.equal((await dayRow(metric, '2026-10-01')).value_sum, '5');
-    assert.equal((await dayRow(metric, '2026-10-02')).value_sum, '7');
-    assert.equal((await dayRow(metric, '2026-10-03')).value_sum, '3');
+    assert.equal((await dayRow(metric, d1)).value_sum, '5');
+    assert.equal((await dayRow(metric, d2)).value_sum, '7');
+    assert.equal((await dayRow(metric, d3)).value_sum, '3');
   });
 });

@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:my_training/app/evolup_app.dart';
 import 'package:my_training/app/session/app_session.dart';
+import 'package:my_training/app/session/local_day_clock.dart';
 import 'package:my_training/app/session/metrics_controller.dart';
 import 'package:my_training/coach/coach_repository.dart';
 import 'package:my_training/data/profile/user_profile.dart';
@@ -30,6 +31,7 @@ class TestWorld {
     FakeMetricsRepository? metrics,
     this.coach,
     this.deviceZone = 'Europe/Paris',
+    this.clock,
     bool signedIn = true,
   }) : auth =
            auth ??
@@ -47,11 +49,18 @@ class TestWorld {
   final CoachRepository? coach;
   final String? deviceZone;
 
+  /// The device's clock; `null` = the real one. Tests change it to cross
+  /// midnight or a time zone, then call `session.day.check()`.
+  DateTime? clock;
+
+  DateTime now() => clock ?? DateTime.now();
+
   SessionServices get services => SessionServices(
     profiles: profiles,
     metrics: metrics,
     coach: coach,
     deviceTimezone: FakeDeviceTimezone(deviceZone),
+    now: now,
   );
 }
 
@@ -95,7 +104,13 @@ Future<SignedInSession> pumpInSession(
   final w = world ?? TestWorld();
   useSurfaceSize(tester, size);
   final profile = await w.profiles.loadOrCreate(timezone: 'Europe/Paris');
-  final metrics = MetricsController(w.metrics);
+  // Not watched: only `session.day.check()` reads the clock again.
+  final day = LocalDayClock(now: w.now);
+  final metrics = MetricsController(
+    w.metrics,
+    now: w.now,
+    today: () => day.today,
+  );
   await metrics.load();
   final session = SignedInSession(
     userId: 'user-1',
@@ -103,6 +118,7 @@ Future<SignedInSession> pumpInSession(
     profile: ProfileController(w.profiles, profile),
     metrics: metrics,
     deviceTimezone: FakeDeviceTimezone(w.deviceZone),
+    day: day,
     coach: w.coach,
     signOut: () async {},
   );

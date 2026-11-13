@@ -9,6 +9,7 @@ console.log(`# migrations applied: ${database.migrations.join(', ')}`);
 
 await import('./aggregation.test.mjs');
 await import('./statistics.test.mjs');
+await import('./entry_rules.test.mjs');
 await import('./security.test.mjs');
 await import('./concurrency.test.mjs');
 

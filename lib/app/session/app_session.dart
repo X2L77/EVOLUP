@@ -5,6 +5,7 @@ import '../../data/device_timezone.dart';
 import '../../data/profile/profile_repository.dart';
 import '../../data/profile/user_profile.dart';
 import '../shell/app_destination.dart';
+import 'local_day_clock.dart';
 import 'metrics_controller.dart';
 
 /// The signed-in user's profile; every change is saved to Supabase first.
@@ -37,6 +38,7 @@ class SignedInSession {
     required this.profile,
     required this.metrics,
     required this.deviceTimezone,
+    required this.day,
     required this.signOut,
     this.email,
     this.coach,
@@ -47,6 +49,10 @@ class SignedInSession {
   final ProfileController profile;
   final MetricsController metrics;
   final DeviceTimezone deviceTimezone;
+
+  /// The device's "today", shared with [metrics]; pages that depend on it
+  /// reload when it changes (`RevisionReload`).
+  final LocalDayClock day;
 
   /// `null` when the coach cannot be reached at all (no Supabase).
   final CoachRepository? coach;
@@ -64,6 +70,7 @@ class SignedInSession {
   void dispose() {
     profile.dispose();
     metrics.dispose();
+    day.dispose();
     destination.dispose();
   }
 }

@@ -615,8 +615,12 @@ void main() {
       answers['get_metric_history'] = _history;
       answers['get_metric_statistics'] = _statistics;
       answers['compare_metric_periods'] = _comparison;
-      final overview = await repository.loadOverview();
+      final overview = await repository.loadOverview(
+        today: LocalDate(2026, 11, 11),
+      );
       expect(overview.metrics, hasLength(2));
+      // The device's day is sent (owner's decision of 2026-11-12).
+      expect(jsonDecode(server.requests.last.body), {'p_today': '2026-11-11'});
       final from = LocalDate(2026, 10, 13);
       final to = LocalDate(2026, 11, 11);
       final series = await repository.loadSeries('um-1', from, to);
@@ -653,17 +657,26 @@ void main() {
           '{"status": "duplicate", "aggregate": $_aggregate}';
       answers['correct_metric_day'] =
           '{"status": "corrected", "aggregate": $_aggregate}';
-      final result = await repository.recordEntry(
-        EntryRequest(
-          trackedMetricId: 'um-1',
-          value: 8,
-          unit: 'repetition',
-          localDate: LocalDate(2026, 11, 2),
-          timezone: 'Europe/Paris',
-          idempotencyKey: '22222222-2222-2222-2222-222222222222',
-        ),
+      final request = EntryRequest(
+        trackedMetricId: 'um-1',
+        value: 8,
+        unit: 'repetition',
+        localDate: LocalDate(2026, 11, 2),
+        timezone: 'Europe/Paris',
+        idempotencyKey: '22222222-2222-2222-2222-222222222222',
       );
+      final result = await repository.recordEntry(request);
       expect(result.status, EntryStatus.duplicate);
+      // An ordinary entry keeps the six arguments of the former contract.
+      final sent = jsonDecode(server.requests.last.body) as Map;
+      expect(sent.containsKey('p_confirm_duplicate'), isFalse);
+      expect(sent['p_local_date'], '2026-11-02');
+      // Confirmed as a new measure: the same request, same key, confirmed.
+      await repository.recordEntry(request.confirmed());
+      expect(jsonDecode(server.requests.last.body), {
+        ...sent,
+        'p_confirm_duplicate': true,
+      });
       final corrected = await repository.correctDay(
         'um-1',
         LocalDate(2026, 11, 2),
@@ -684,7 +697,7 @@ void main() {
     test('unusable answers are reported as such', () async {
       answers['get_overview'] = '[]';
       await expectLater(
-        repository.loadOverview(),
+        repository.loadOverview(today: LocalDate(2026, 11, 11)),
         throwsA(_fails(DataFailure.badResponse)),
       );
       answers['metric_catalog'] = '[{"id": 4, "name": "Sans slug"}]';

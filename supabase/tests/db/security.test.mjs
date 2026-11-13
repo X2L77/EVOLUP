@@ -366,6 +366,7 @@ describe('schema hardening', () => {
       assert.deepEqual(rows.map((r) => `${r.proname}:${r.rolname}`), [
         'assert_period:authenticated',
         'is_valid_timezone:authenticated',
+        'local_today:authenticated',
         'metric_daily_value:authenticated',
       ]);
     }));

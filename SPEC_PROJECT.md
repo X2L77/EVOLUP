@@ -37,7 +37,11 @@ seule migration distante (`20261021000000_create_athlete_profiles`) ;
 déployée (version 4) ; `athlete_profiles` inchangée (1 ligne, même
 empreinte). Vérifié à distance : objets, droits, refus `anon`, fonctions de
 calcul, réponses de la fonction sans session. **Non vérifié** : parcours avec
-un compte réel (saisie, statistiques, Polomix).
+un compte réel (saisie, statistiques, Polomix). **[Constat] 2026-11-12** :
+lots 1 à 3 présents sur `preparation-refonte-ui` (541f7f1, f516b34,
+94b3a4b) ; lot de corrections B1–B5 du 2026-11-12 développé localement, avec
+la migration `20261112100000_entry_rules_and_device_today.sql` **non
+appliquée à distance** (testée sur PostgreSQL local uniquement).
 
 ## 2. Identité — [Validé]
 
@@ -168,7 +172,14 @@ Règles appliquées et testées :
 Nom très visible en haut à gauche, catégorie, champ adapté (entier ; décimal
 dans l'unité affichée ; heures/minutes/secondes ; notes autorisées), unité,
 bornes, date de mesure (aujourd'hui sur l'horloge de l'appareil, modifiable
-vers le passé, jamais le futur), explication de l'agrégation, « Valider ».
+vers le passé jusqu'au même jour calendaire un an plus tôt — 29 février →
+28 février —, jamais le futur ; **[Validé] 2026-11-12**), explication de
+l'agrégation, « Valider ». Changement de jour pendant que le formulaire est
+ouvert (minuit, fuseau, retour au premier plan) **[Validé] 2026-11-12** : la
+date par défaut suit le nouveau jour ; une date choisie est conservée sauf si
+elle devient future (ramenée à aujourd'hui) ou dépasse un an (ramenée à la
+plus ancienne autorisée) ; un message l'indique ; si le jour change au moment
+de « Valider », rien n'est envoyé et l'utilisateur valide de nouveau.
 Chargement, confirmation (valeur du jour et nombre de saisies), message de
 doublon, erreurs compréhensibles (une erreur réseau n'est jamais un succès),
 protection contre les doubles envois, « Nouvelle saisie ». Le champ reste au-
@@ -200,11 +211,14 @@ Testé : 30 saisies simultanées sur 30 connexions, aucune perdue.
 
 ### 6.4 Doublons et idempotence
 
-- **[Validé]** Doublon = même utilisateur, même indicateur, même jour local,
-  même valeur normalisée : il ne change ni la somme ni le nombre, et l'app
-  l'annonce. Conséquence à connaître : deux vraies séries identiques le même
-  jour (8 puis 8) ne comptent qu'une fois. **[Ouvert]** Le propriétaire
-  confirmera si cette règle doit rester stricte.
+- **[Validé] 2026-11-12** Doublon = même utilisateur, même indicateur, même
+  jour local, même valeur normalisée. Le serveur répond `duplicate` sans rien
+  changer ; l'app demande « S'agit-il d'une nouvelle mesure ? ». « Oui,
+  nouvelle mesure » renvoie la même requête (même clé) avec
+  `p_confirm_duplicate = true` : la valeur est comptée (limites du jour et
+  idempotence inchangées). « Non, erreur de saisie » n'enregistre rien et
+  l'app le dit. Jamais de blocage silencieux. (Avant cette décision, la règle
+  était stricte : 8 puis 8 ne comptaient qu'une fois.)
 - **[Décision technique]** Empreinte : un hachage de 64 bits (SHA-256 tronqué)
   par valeur distincte du jour, calculé en base sur la valeur arrondie à la
   précision de stockage sans zéros finaux (8 = 8,0 = 8,00), salé par
@@ -232,10 +246,19 @@ L'app le dit clairement.
 - **[Décision technique]** La date de mesure est un jour calendaire choisi
   dans le formulaire (horloge de l'appareil) ; chaque agrégat garde le fuseau
   IANA de l'appareil lors de la première saisie du jour (`timezone_name`). Le
-  serveur refuse un jour postérieur à « aujourd'hui » dans ce fuseau et un
-  fuseau inconnu de PostgreSQL. Le fuseau du profil sert à « aujourd'hui »
-  dans la Vue d'ensemble et Polomix. Aucune conversion UTC ne touche la date
-  (testé, y compris un jour de changement d'heure et UTC+14).
+  serveur refuse un jour postérieur à « aujourd'hui » dans ce fuseau, un jour
+  antérieur au même jour un an plus tôt (`date_too_old`) et un fuseau inconnu
+  de PostgreSQL. Aucune conversion UTC ne touche la date (testé, y compris un
+  jour de changement d'heure et UTC+14).
+- **[Validé] 2026-11-12** Le fuseau **de l'appareil** détermine « aujourd'hui »
+  et la date des nouvelles saisies. L'app envoie son jour local à
+  `get_overview(p_today)` ; le fuseau du profil ne sert plus qu'en secours
+  (fuseau de l'appareil illisible) et à Polomix (qui appelle `get_overview()`
+  sans paramètre, à revoir dans le lot Polomix). Les dates locales
+  enregistrées ne bougent jamais. `LocalDayClock` relit l'horloge juste après
+  minuit, au moins toutes les 30 s et au retour au premier plan ; un
+  changement de jour invalide la vue d'ensemble partagée et recharge les
+  pages (`RevisionReload`).
 - Le fuseau du profil est initialisé avec celui de l'appareil à la première
   connexion (UTC s'il est illisible).
 
@@ -245,6 +268,11 @@ PostgreSQL regroupe par jour, semaine ISO (lundi) ou mois. Moyenne d'une
 période = somme des sommes / somme des nombres (pondérée). Somme = total de
 la période (et moyenne par journée enregistrée en plus). `auto` : jours
 jusqu'à 120 jours, semaines jusqu'à deux ans, mois au-delà (≤ ~120 points).
+**[Validé] 2026-11-12** Le regroupement « Jour » n'est proposé que jusqu'à
+365 jours calendaires (bornes incluses) : au-delà, il est désactivé et
+expliqué, et l'affichage passe en automatique ; `get_metric_history` refuse
+`day` au-delà (`too_many_points`, message clair). **Reporté** : comparaison
+des sommes par moyenne journalière calendaire (lot Statistiques).
 Les agrégats quotidiens ne sont jamais supprimés pour gagner de la place. Pas
 de TimescaleDB.
 
@@ -276,7 +304,10 @@ explicite, confirmée).
 
 ### 7.5 `metric_daily_aggregates`
 
-`id`, `user_id`, `user_metric_id`, `local_date` (≥ 1900-01-01),
+`id`, `user_id`, `user_metric_id`, `local_date` (≥ 1900-01-01 pour la
+table ; une **nouvelle** saisie doit dater de la dernière année, contrôlé par
+`record_metric_entry` ; les journées plus anciennes restent consultables,
+corrigibles et supprimables),
 `timezone_name`, `sample_count` (1–200), `value_sum`, `value_min`,
 `value_max`, `value_last`, `entry_fingerprints` (bigint[]), `request_keys`
 (uuid[], ≤ 200), `created_at`, `updated_at`. Unique (`user_metric_id`,
@@ -296,8 +327,9 @@ Aucune table de conversation n'existait ; la conversation reste temporaire
 ### 8.1 Écritures (`SECURITY DEFINER`, `search_path` vide)
 
 - `record_metric_entry(p_user_metric_id, p_value, p_unit, p_local_date,
-  p_timezone, p_idempotency_key)` → `{status, aggregate}` ; `status` =
-  `recorded`, `duplicate` ou `already_recorded`.
+  p_timezone, p_idempotency_key, p_confirm_duplicate default false)` →
+  `{status, aggregate}` ; `status` = `recorded`, `duplicate` ou
+  `already_recorded` (§6.4). Les appels à six arguments restent valides.
 - `correct_metric_day(p_user_metric_id, p_local_date, p_value, p_unit)` →
   `{status: "corrected", aggregate}`.
 
@@ -311,7 +343,10 @@ portant l'en-tête `x-evolup-actor: polomix` (défense en profondeur).
 
 ### 8.2 Lectures (`SECURITY INVOKER`, RLS appliquée)
 
-`get_overview()`, `get_metric_history(id, from, to, bucket)`,
+`get_overview(p_today default null)` (jour de l'appareil ; refusé s'il
+n'existe nulle part sur Terre à cet instant, `invalid_today` ; sans
+paramètre : jour du fuseau du profil), `get_metric_history(id, from, to,
+bucket)` (`day` ≤ 365 jours),
 `get_metric_statistics(id, from, to)` (valeur de la période, moyenne par
 journée pour les sommes, record, dernière journée, tendance par moindres
 carrés à partir de 5 journées), `compare_metric_periods(id, a…, b…)`
@@ -325,7 +360,7 @@ SQLSTATE `42501` : `not_authenticated`, `coach_cannot_write`. SQLSTATE
 `metric_retired`, `unit_mismatch`, `value_invalid`, `value_precision`,
 `value_out_of_range`, `invalid_timezone`, `date_too_old`, `date_in_future`,
 `daily_entry_limit`, `daily_sum_exceeded`, `day_not_found`, `invalid_period`,
-`invalid_bucket`, `too_many_points`. SQLSTATE `55000` (migrations) :
+`invalid_bucket`, `too_many_points`, `invalid_today`. SQLSTATE `55000` (migrations) :
 `metric_identity_is_permanent`, `metric_storage_is_permanent_once_tracked`.
 L'app les traduit dans `lib/data/data_error.dart`.
 
@@ -383,7 +418,13 @@ compatibilité dans Paramètres → Polomix.
 Graphique générique (`CustomPainter`) construit depuis la définition :
 barres pour les sommes, ligne et points sinon, unités de l'indicateur, valeur
 exacte au toucher ou au survol, résumé pour les lecteurs d'écran. Aucun
-lissage ni interpolation. Pas de record sans sens du record ; pas de tendance
+lissage ni interpolation. **[Validé] 2026-11-12** La ligne est coupée là où il
+manque un jour, une semaine ou un mois (points isolés conservés) ; les
+semaines et mois incomplets (en partie hors de la période, ou en cours) sont
+dessinés en clair, signalés par une note, à la sélection (« semaine
+incomplète (4 jours sur 7) ») et aux lecteurs d'écran. Comparaison de deux
+indicateurs : la série du premier, déjà chargée par l'analyse, est partagée
+(une seule requête). Pas de record sans sens du record ; pas de tendance
 avant 5 journées ; pas de comparaison avant 3 journées par période ; un seul
 point → « pas encore d'évolution ». Comparaison de deux indicateurs : deux
 graphiques sur les mêmes jours, avec l'avertissement « ne prouvent pas que
@@ -421,7 +462,10 @@ Migrations versionnées dans `supabase/migrations/` ; testées sur PostgreSQL
 17.11 local (`supabase/tests/db`, sans Docker) ; vérifiées par
 `npx supabase db push --linked --dry-run`. Ordre de mise en production, **sur
 accord du propriétaire** : (1) migrations, (2) redéploiement de `coach-chat`,
-(3) application. Étapes (1) et (2) faites le 2026-11-09 ; (3) à faire. Jamais de `reset` distant ni de `config push`. Détail dans
+(3) application. Étapes (1) et (2) faites le 2026-11-09 ; (3) à faire.
+Migration `20261112100000` **en attente d'accord** : à appliquer avant toute
+version de l'app qui appelle `get_overview(p_today)` (l'inverse reste
+compatible). Jamais de `reset` distant ni de `config push`. Détail dans
 le README.
 
 ## 16. Organisation du code — [Validé]
@@ -432,14 +476,21 @@ session, navigation, widgets partagés, thèmes, formats), `lib/features/*`
 
 ## 17. Tests
 
-- Base (`supabase/tests/db`, 46 tests) : agrégation, doublons, idempotence,
-  concurrence, dates et fuseaux, regroupements pondérés, statistiques,
-  comparaisons, RLS à deux identités, anonyme, catalogue, durcissement.
-- Edge Function (Deno, 43 tests) : contrat, sessions, contexte pertinent,
+Nombres vérifiés le 2026-11-12 (exécutés, tous réussis) :
+
+- Base (`supabase/tests/db`, 61 tests) : agrégation, doublons et leur
+  confirmation, idempotence, concurrence, dates (fenêtre d'un an) et fuseaux,
+  regroupements pondérés, « Jour » ≤ 365 jours, statistiques, comparaisons,
+  vue d'ensemble au jour de l'appareil, RLS à deux identités, anonyme,
+  catalogue, durcissement. « Aujourd'hui » y est figé au 2026-11-12 12:00 UTC
+  dans chaque transaction annulée.
+- Edge Function (Deno, 54 tests) : contrat, sessions, contexte pertinent,
   consentement, intention de saisie, actions invalides, panne Polomix, état,
-  test de compatibilité, absence d'écriture.
-- Flutter (126 tests) : navigation, catalogue, formulaire, Polomix,
-  statistiques, paramètres, thèmes, connexion.
+  test de compatibilité, absence d'écriture, CORS, limites de débit.
+- Flutter (277 tests) : navigation, catalogue, formulaire (un an, minuit,
+  doublons), Polomix, statistiques (365 jours, série partagée, lignes
+  coupées, périodes incomplètes), changement de jour, paramètres, thèmes,
+  connexion. Faux dépôts en mémoire : aucun test ne touche Supabase.
 
 ## 18. Connexion et compte — [Validé] (guide de construction #1)
 
@@ -464,13 +515,23 @@ de ce document dans Git (`0c5c571`).
 | 2026-11-09 | Palette par défaut Blue ; connexion toujours en identité nuit. | Décision technique |
 | 2026-11-09 | Migrations `20261109…` appliquées et `coach-chat` v4 déployée. | Propriétaire |
 | 2026-11-09 | Polomix sans dépendance au port 5000 : origines locales (loopback tous ports, réseau privé avec port) + origines `https://` de `COACH_ALLOWED_ORIGINS` ; pas de joker ; session toujours exigée (fonction version 5). | Propriétaire |
+| 2026-11-12 | Valeur identique le même jour : confirmation « nouvelle mesure / erreur de saisie », comptée si confirmée. | Propriétaire |
+| 2026-11-12 | Nouvelles saisies : au plus un an en arrière (même jour calendaire ; 29 février → 28 février), jamais le futur ; les journées plus anciennes restent consultables, corrigibles et supprimables. | Propriétaire |
+| 2026-11-12 | Le fuseau de l'appareil détermine « aujourd'hui » ; `get_overview(p_today)`, compatibilité sans paramètre (Polomix v5). Dates enregistrées jamais décalées. | Propriétaire |
+| 2026-11-12 | Formulaire ouvert au changement de jour : date par défaut suivie, date choisie conservée sauf si future, nouvelle validation demandée ; vérification à minuit et au retour au premier plan. | Propriétaire |
+| 2026-11-12 | « Jour » désactivé au-delà de 365 jours (expliqué) et refusé par le serveur ; lignes coupées aux périodes manquantes ; semaines et mois incomplets signalés. | Propriétaire |
+| 2026-11-12 | Reportés : moyenne journalière des sommes (lot Statistiques) ; interdiction de corriger un indicateur retiré (lot Catalogue) ; consentement et transparence Polomix (lot Polomix) ; hors connexion ; suppression du compte ; `athlete_profiles` conservée. | Propriétaire |
+| 2026-11-12 | Tests SQL : « aujourd'hui » isolé dans `private.local_today`, figé par le harnais dans la transaction annulée (aucun point d'entrée de test dans le code de production). | Décision technique |
 
 ## 20. Questions ouvertes — [Ouvert]
 
-1. Doublon strict (§6.4) : deux séries identiques le même jour ne comptent
-   qu'une fois. À confirmer ou assouplir.
+1. ~~Doublon strict (§6.4)~~ — tranché le 2026-11-12 : confirmation, puis
+   comptage si nouvelle mesure.
 2. Catalogue initial (§4.5) : liste, bornes, méthodes, records.
-3. Consentement Polomix désactivé par défaut : à confirmer.
+3. ~~Consentement Polomix désactivé par défaut~~ — confirmé le 2026-11-12
+   (demande à la première utilisation, modifiable dans les Paramètres,
+   distinct de l'information sur l'envoi des messages) : à réaliser dans le
+   lot Polomix.
 4. Suppression du compte depuis l'app (nécessite une Edge Function avec la
    clé `service_role`) : non faite.
 5. Que faire de `athlete_profiles` (conserver, exporter, supprimer) ?

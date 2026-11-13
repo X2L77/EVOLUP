@@ -3,6 +3,17 @@ import 'package:flutter/material.dart';
 import '../../../data/local_date.dart';
 import '../../../data/metrics/metric_models.dart';
 
+/// Longest period, in calendar days, that can be grouped by day (owner's
+/// decision of 2026-11-12; `get_metric_history` refuses beyond).
+const maxDayBucketDays = 365;
+
+/// Calendar days from [from] to [to], both included.
+int periodLength(LocalDate from, LocalDate to) => to.daysSince(from) + 1;
+
+/// Whether the period [from]–[to] can be grouped by day.
+bool dayBucketAvailable(LocalDate from, LocalDate to) =>
+    periodLength(from, to) <= maxDayBucketDays;
+
 /// Periods offered by the statistics.
 enum StatsPeriod {
   days7('7 j', 7),
@@ -72,16 +83,20 @@ class PeriodSelector extends StatelessWidget {
 }
 
 /// Grouping of the chart: automatic (by period length), day, week or month.
+/// « Jour » is disabled when [dayAvailable] is false (period longer than
+/// [maxDayBucketDays]); the page explains why.
 class BucketSelector extends StatelessWidget {
   const BucketSelector({
     required this.value,
     required this.onChanged,
+    this.dayAvailable = true,
     super.key,
   });
 
   /// `null` = automatic.
   final SeriesBucket? value;
   final ValueChanged<SeriesBucket?> onChanged;
+  final bool dayAvailable;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -95,6 +110,7 @@ class BucketSelector extends StatelessWidget {
         for (final bucket in SeriesBucket.values)
           ButtonSegment(
             value: bucket,
+            enabled: bucket != SeriesBucket.day || dayAvailable,
             label: Text(bucket.label, key: Key('bucket-${bucket.name}')),
           ),
       ],

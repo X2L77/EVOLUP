@@ -41,17 +41,17 @@ User-facing strings are in French.
 ```powershell
 flutter pub get
 flutter analyze
-flutter test                                   # 126 widget/unit tests
+flutter test                                   # 277 widget/unit tests
 flutter test test/entry_form_test.dart         # one file
 dart format lib test
 
 # Database: migrations on a local PostgreSQL 17 (no Docker, no remote)
-cd supabase/tests/db; npm install; npm test     # 46 tests
+cd supabase/tests/db; npm install; npm test     # 61 tests (clock pinned)
 
 # Edge Function (from supabase/functions/coach-chat)
 npx -y deno@2.9.6 fmt --check . ; npx -y deno@2.9.6 lint .
 npx -y deno@2.9.6 check *.ts
-npx -y deno@2.9.6 test --no-prompt --allow-read=. *_test.ts   # 43 tests
+npx -y deno@2.9.6 test --no-prompt --allow-read=. *_test.ts   # 54 tests
 
 # Remote, read-only check of pending migrations
 npx supabase db push --linked --dry-run
@@ -76,10 +76,15 @@ of this repo's: keep both in sync.
   (profile created on first sign-in with the device's IANA zone, catalog and
   tracked metrics) → error with retry → `AppShell`.
 - **Session** (`lib/app/session/`): `SignedInSession` (profile controller,
-  `MetricsController`, coach repository, device time zone, current section).
-  `MetricsController` holds categories, catalog, tracked metrics and every
-  write; its `revision` increases when recorded data changes. Pages that load
-  data use the `RevisionReload` mixin. In callbacks use `SessionScope.read`,
+  `MetricsController`, coach repository, device time zone, `LocalDayClock`
+  `day`, current section). `MetricsController` holds categories, catalog,
+  tracked metrics and every write; its `revision` increases when recorded
+  data changes; it shares the overview (key: data state + device day) and the
+  chart series (`loadSeries`). `LocalDayClock` is "today" on the device
+  (owner's decision 2026-11-12: the device, not the profile zone, decides
+  today); it re-reads the clock after midnight, every 30 s and on resume.
+  Pages that load data use the `RevisionReload` mixin (reload on data change
+  and on day change; `deviceToday`). In callbacks use `SessionScope.read`,
   in `build` `SessionScope.of`.
 - **Shell** (`lib/app/shell/`): five `AppDestination`s in an `IndexedStack`
   (built on first visit, kept alive), floating glass `EvolupNavBar` (hidden
@@ -105,10 +110,12 @@ of this repo's: keep both in sync.
   in `lib/app/evolup_logo.dart`.
 - **Supabase** (`supabase/migrations/`): `profiles`, `metric_categories`,
   `metric_catalog` (+ seed), `user_metrics`, `metric_daily_aggregates`, view
-  `metric_daily_values`, functions `record_metric_entry` /
-  `correct_metric_day` (the only writers, SECURITY DEFINER), read functions
-  `get_overview`, `get_metric_history`, `get_metric_statistics`,
-  `compare_metric_periods`, `list_timezones`; helpers in schema `private`.
+  `metric_daily_values`, functions `record_metric_entry` (new entries: last
+  year only; `p_confirm_duplicate`) / `correct_metric_day` (the only
+  writers, SECURITY DEFINER), read functions `get_overview(p_today)`,
+  `get_metric_history` ('day' ≤ 365 days), `get_metric_statistics`,
+  `compare_metric_periods`, `list_timezones`; helpers in schema `private`
+  (`local_today`: the only reading of the clock, pinned by the DB tests).
   Catalog changes: new migration only; never delete or redefine a tracked
   metric (retire it). Every new SQL function: `set search_path = ''`, fully
   qualified names, explicit `revoke ... from public, anon, authenticated,

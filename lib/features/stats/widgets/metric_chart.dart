@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/format/dates.dart';
@@ -9,16 +10,100 @@ import '../../../data/metrics/metric_values.dart';
 import '../../../theme/evolup_theme.dart';
 import '../../metrics/metric_texts.dart';
 
+/// Last day of the day, week (Monday–Sunday) or month starting at [start].
+LocalDate bucketEnd(LocalDate start, SeriesBucket bucket) => switch (bucket) {
+  SeriesBucket.day => start,
+  SeriesBucket.week => start.addDays(6),
+  SeriesBucket.month => LocalDate(
+    start.year,
+    start.month,
+    1,
+  ).addMonths(1).addDays(-1),
+};
+
+/// Start of the bucket that follows the one starting at [start].
+LocalDate nextBucketStart(LocalDate start, SeriesBucket bucket) =>
+    bucketEnd(start, bucket).addDays(1);
+
+/// Days of a week or month that a chart point actually covers.
+@immutable
+class BucketCoverage {
+  const BucketCoverage(this.covered, this.total);
+
+  /// Days of the bucket inside the period and not after today.
+  final int covered;
+  final int total;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BucketCoverage &&
+      other.covered == covered &&
+      other.total == total;
+
+  @override
+  int get hashCode => Object.hash(covered, total);
+
+  @override
+  String toString() => 'BucketCoverage($covered/$total)';
+}
+
+/// For a week or a month cut by the period ([from]–[to]) or not over yet
+/// ([today]): how many of its days the point covers. `null` for a complete
+/// bucket, and always for days.
+BucketCoverage? partialCoverage(
+  LocalDate start,
+  SeriesBucket bucket, {
+  required LocalDate from,
+  required LocalDate to,
+  required LocalDate today,
+}) {
+  if (bucket == SeriesBucket.day) return null;
+  final end = bucketEnd(start, bucket);
+  final total = end.daysSince(start) + 1;
+  final last = [end, to, today].reduce((a, b) => a.isBefore(b) ? a : b);
+  final first = start.isBefore(from) ? from : start;
+  final covered = last.isBefore(first) ? 0 : last.daysSince(first) + 1;
+  return covered >= total ? null : BucketCoverage(covered, total);
+}
+
+/// The points split where a day, week or month has no value: the line of a
+/// chart goes through each run and stops between runs (nothing is drawn
+/// across the missing periods). Indexes into [points], in order.
+List<List<int>> continuousRuns(List<SeriesPoint> points, SeriesBucket bucket) {
+  final runs = <List<int>>[];
+  for (var i = 0; i < points.length; i++) {
+    if (i == 0 ||
+        points[i].start != nextBucketStart(points[i - 1].start, bucket)) {
+      runs.add([i]);
+    } else {
+      runs.last.add(i);
+    }
+  }
+  return runs;
+}
+
+/// "semaine incomplète (3 jours sur 7)", "mois incomplet (12 jours sur 30)".
+String partialLabel(SeriesBucket bucket, BucketCoverage coverage) {
+  final kind = bucket == SeriesBucket.month
+      ? 'mois incomplet'
+      : 'semaine incomplète';
+  final days = coverage.covered > 1 ? 'jours' : 'jour';
+  return '$kind (${coverage.covered} $days sur ${coverage.total})';
+}
+
 /// Chart of any metric, built from its catalog definition: bars for totals
 /// (sum aggregation), a line with points otherwise. Values are formatted in
 /// the metric's unit. Touching or hovering a point shows its exact value.
-/// Only real points are drawn; nothing is interpolated or smoothed.
+/// Only real points are drawn; nothing is interpolated or smoothed: the line
+/// stops where a day, week or month has no value. Weeks and months cut by
+/// the period or not over yet are drawn lighter and said to be incomplete.
 class MetricChart extends StatefulWidget {
   const MetricChart({
     required this.definition,
     required this.series,
     required this.from,
     required this.to,
+    this.today,
     this.height = 210,
     this.secondary = false,
     super.key,
@@ -28,6 +113,10 @@ class MetricChart extends StatefulWidget {
   final MetricSeries series;
   final LocalDate from;
   final LocalDate to;
+
+  /// The device's day: the current week or month is not over yet. `null`:
+  /// [to].
+  final LocalDate? today;
   final double height;
 
   /// Second metric of a comparison: drawn with the secondary color.
@@ -45,6 +134,16 @@ class _MetricChartState extends State<MetricChart> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.series != widget.series) _selected = null;
   }
+
+  bool get _bars => widget.definition.aggregation == MetricAggregation.sum;
+
+  BucketCoverage? _coverage(SeriesPoint point) => partialCoverage(
+    point.start,
+    widget.series.bucket,
+    from: widget.from,
+    to: widget.to,
+    today: widget.today ?? widget.to,
+  );
 
   void _select(Offset position, _ChartLayout layout) {
     final points = widget.series.points;
@@ -64,9 +163,13 @@ class _MetricChartState extends State<MetricChart> {
   String _describe(SeriesPoint point) {
     final d = widget.definition;
     final aggregated = point.sampleCount > 1;
+    final coverage = _coverage(point);
+    final partial = coverage == null
+        ? ''
+        : ' · ${partialLabel(widget.series.bucket, coverage)}';
     return '${formatBucket(point.start, widget.series.bucket, long: true)} : '
         '${formatValue(d, point.value, aggregated: aggregated)}'
-        ' · ${entriesLabel(point.sampleCount)}';
+        ' · ${entriesLabel(point.sampleCount)}$partial';
   }
 
   @override
@@ -78,6 +181,12 @@ class _MetricChartState extends State<MetricChart> {
         ? null
         : points[_selected!];
     final values = points.map((p) => p.value);
+    final partial = [for (final p in points) _coverage(p) != null];
+    final partialCount = partial.where((p) => p).length;
+    final runs = continuousRuns(points, widget.series.bucket);
+    final partialName = widget.series.bucket == SeriesBucket.month
+        ? (partialCount > 1 ? 'mois incomplets' : 'mois incomplet')
+        : (partialCount > 1 ? 'semaines incomplètes' : 'semaine incomplète');
     final summary = points.isEmpty
         ? 'Aucune donnée'
         : 'Graphique de ${widget.definition.name}, ${points.length} points '
@@ -86,7 +195,9 @@ class _MetricChartState extends State<MetricChart> {
               '${formatDate(points.last.start)}. Minimum '
               '${formatValue(widget.definition, values.reduce(math.min), aggregated: true)}'
               ', maximum '
-              '${formatValue(widget.definition, values.reduce(math.max), aggregated: true)}.';
+              '${formatValue(widget.definition, values.reduce(math.max), aggregated: true)}.'
+              '${partialCount == 0 ? '' : ' $partialCount $partialName, affichés en clair.'}'
+              '${runs.length > 1 && !_bars ? ' Ligne interrompue là où il manque des valeurs.' : ''}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -138,10 +249,10 @@ class _MetricChartState extends State<MetricChart> {
                       painter: _ChartPainter(
                         layout: layout,
                         points: points,
+                        partial: partial,
+                        runs: runs,
                         selected: _selected,
-                        bars:
-                            widget.definition.aggregation ==
-                            MetricAggregation.sum,
+                        bars: _bars,
                         color: widget.secondary
                             ? colors.chartSecondary
                             : colors.chartPrimary,
@@ -155,6 +266,19 @@ class _MetricChartState extends State<MetricChart> {
             ),
           ),
         ),
+        if (partialCount > 0) ...[
+          const SizedBox(height: 6),
+          Text(
+            widget.series.bucket == SeriesBucket.month
+                ? 'Points en clair : mois en partie hors de la période ou en '
+                      'cours. Leur valeur ne porte que sur les jours couverts.'
+                : 'Points en clair : semaines en partie hors de la période ou '
+                      'en cours. Leur valeur ne porte que sur les jours '
+                      'couverts.',
+            key: const Key('chart-partial-note'),
+            style: textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+          ),
+        ],
       ],
     );
   }
@@ -277,6 +401,8 @@ class _ChartPainter extends CustomPainter {
   _ChartPainter({
     required this.layout,
     required this.points,
+    required this.partial,
+    required this.runs,
     required this.selected,
     required this.bars,
     required this.color,
@@ -286,6 +412,12 @@ class _ChartPainter extends CustomPainter {
 
   final _ChartLayout layout;
   final List<SeriesPoint> points;
+
+  /// Per point: an incomplete week or month (drawn lighter).
+  final List<bool> partial;
+
+  /// Consecutive points joined by the line ([continuousRuns]).
+  final List<List<int>> runs;
   final int? selected;
   final bool bars;
   final Color color;
@@ -329,10 +461,17 @@ class _ChartPainter extends CustomPainter {
           topLeft: const Radius.circular(4),
           topRight: const Radius.circular(4),
         );
-        canvas.drawRRect(
-          rect,
-          Paint()..color = i == selected ? color : color.withValues(alpha: 0.7),
-        );
+        final alpha = partial[i] ? 0.3 : (i == selected ? 1.0 : 0.7);
+        canvas.drawRRect(rect, Paint()..color = color.withValues(alpha: alpha));
+        if (partial[i]) {
+          canvas.drawRRect(
+            rect,
+            Paint()
+              ..color = color
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.2,
+          );
+        }
       }
     } else {
       final line = Paint()
@@ -341,25 +480,35 @@ class _ChartPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeJoin = StrokeJoin.round
         ..strokeCap = StrokeCap.round;
-      final path = Path();
-      for (var i = 0; i < points.length; i++) {
-        final offset = Offset(
-          layout.x(points[i].start),
-          layout.y(points[i].value),
-        );
-        i == 0
-            ? path.moveTo(offset.dx, offset.dy)
-            : path.lineTo(offset.dx, offset.dy);
+      Offset at(int i) =>
+          Offset(layout.x(points[i].start), layout.y(points[i].value));
+      // One path per run of consecutive points: no line across a missing
+      // day, week or month.
+      for (final run in runs) {
+        if (run.length < 2) continue;
+        final path = Path()..moveTo(at(run.first).dx, at(run.first).dy);
+        for (final i in run.skip(1)) {
+          path.lineTo(at(i).dx, at(i).dy);
+        }
+        canvas.drawPath(path, line);
       }
-      if (points.length > 1) canvas.drawPath(path, line);
       final radius = points.length > 60 ? 2.0 : 3.2;
       for (var i = 0; i < points.length; i++) {
-        final offset = Offset(
-          layout.x(points[i].start),
-          layout.y(points[i].value),
-        );
+        final offset = at(i);
         canvas.drawCircle(offset, radius + 1.4, Paint()..color = background);
-        canvas.drawCircle(offset, radius, Paint()..color = color);
+        if (partial[i]) {
+          // Hollow: an incomplete week or month.
+          canvas.drawCircle(
+            offset,
+            radius,
+            Paint()
+              ..color = color
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 1.4,
+          );
+        } else {
+          canvas.drawCircle(offset, radius, Paint()..color = color);
+        }
       }
     }
 
@@ -384,6 +533,7 @@ class _ChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(_ChartPainter oldDelegate) =>
       oldDelegate.points != points ||
+      !listEquals(oldDelegate.partial, partial) ||
       oldDelegate.selected != selected ||
       oldDelegate.color != color ||
       oldDelegate.layout.plot != layout.plot ||

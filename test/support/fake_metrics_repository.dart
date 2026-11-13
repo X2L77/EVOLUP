@@ -57,8 +57,9 @@ double? _aggregate(
 
 /// In-memory version of the EVOLUP tables and functions, with the same
 /// rules as the database (supabase/tests/db checks the real ones): one row
-/// per tracked metric and day, duplicate values and retried keys ignored,
-/// catalog bounds, no future date. Entries, the global deletion and the
+/// per tracked metric and day, duplicate values reported unless confirmed,
+/// retried keys ignored, catalog bounds, no future date and at most one year
+/// back, 'day' grouping up to 365 days, the device's day in the overview. Entries, the global deletion and the
 /// overview go through the same guards (timeouts, error classification) as
 /// `SupabaseMetricsRepository`.
 class FakeMetricsRepository implements MetricsRepository {
@@ -70,7 +71,12 @@ class FakeMetricsRepository implements MetricsRepository {
 
   final List<MetricCategory> categories;
   final List<MetricDefinition> catalog;
-  final LocalDate today;
+
+  /// "Today" for the server (date checks); tests move it across midnight.
+  LocalDate today;
+
+  /// The `today` sent with each overview request.
+  final overviewDays = <LocalDate>[];
   final tracked = <TrackedMetric>[];
   final _days = <String, Map<LocalDate, _Day>>{};
   final requests = <EntryRequest>[];
@@ -110,6 +116,9 @@ class FakeMetricsRepository implements MetricsRepository {
 
   int statisticsLoads = 0;
   int seriesLoads = 0;
+
+  /// Every series asked: (tracked metric, from, to, grouping or `null`).
+  final seriesQueries = <(String, LocalDate, LocalDate, SeriesBucket?)>[];
   int comparisonLoads = 0;
 
   /// When set, statistics, series and comparisons are computed when called
@@ -294,6 +303,9 @@ class FakeMetricsRepository implements MetricsRepository {
       throw _error('value_out_of_range');
     }
     if (request.localDate.isAfter(today)) throw _error('date_in_future');
+    if (request.localDate.isBefore(today.addMonths(-12))) {
+      throw _error('date_too_old');
+    }
     final days = _days.putIfAbsent(metric.id, () => {});
     final day = days[request.localDate];
     if (day == null) {
@@ -312,12 +324,13 @@ class FakeMetricsRepository implements MetricsRepository {
         day: _value(definition, request.localDate, day),
       );
     }
-    if (day.fingerprints.contains(value)) {
+    if (day.fingerprints.contains(value) && !request.confirmDuplicate) {
       return EntryResult(
         status: EntryStatus.duplicate,
         day: _value(definition, request.localDate, day),
       );
     }
+    if (day.count >= 200) throw _error('daily_entry_limit');
     if (definition.dailySumMax != null &&
         day.sum + value > definition.dailySumMax!) {
       throw _error('daily_sum_exceeded');
@@ -417,6 +430,10 @@ class FakeMetricsRepository implements MetricsRepository {
     SeriesBucket? bucket,
   }) {
     seriesLoads++;
+    seriesQueries.add((trackedMetricId, from, to, bucket));
+    if (bucket == SeriesBucket.day && to.daysSince(from) + 1 > 365) {
+      return Future.error(_error('too_many_points'));
+    }
     return _analysis(() => _series(trackedMetricId, from, to, bucket));
   }
 
@@ -563,19 +580,24 @@ class FakeMetricsRepository implements MetricsRepository {
   }
 
   @override
-  Future<Overview> loadOverview() => guardRead('loadOverview', _loadOverview);
+  Future<Overview> loadOverview({required LocalDate today}) =>
+      guardRead('loadOverview', () => _loadOverview(today));
 
   /// The overview is computed when called and delivered once
-  /// [overviewGate] completes (a late answer carries an older state).
-  Future<Overview> _loadOverview() async {
+  /// [overviewGate] completes (a late answer carries an older state). Like
+  /// the server, a device's day more than one day away from [today] (no
+  /// time zone can explain it) is refused.
+  Future<Overview> _loadOverview(LocalDate deviceToday) async {
     overviewLoads++;
+    overviewDays.add(deviceToday);
+    if (deviceToday.daysSince(today).abs() > 1) throw _error('invalid_today');
     final gate = overviewGate;
-    final overview = await _computeOverview();
+    final overview = await _computeOverview(deviceToday);
     await gate?.future;
     return overview;
   }
 
-  Future<Overview> _computeOverview() async {
+  Future<Overview> _computeOverview(LocalDate today) async {
     if (loadError case final error?) throw error;
     if (overviewError case final error?) throw error;
     final metrics = <OverviewMetric>[];

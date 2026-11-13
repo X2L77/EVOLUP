@@ -69,7 +69,9 @@ abstract interface class MetricsRepository {
     required LocalDate comparedFrom,
     required LocalDate comparedTo,
   });
-  Future<Overview> loadOverview();
+
+  /// The overview, "today" being [today]: the device's local day.
+  Future<Overview> loadOverview({required LocalDate today});
   Future<List<String>> loadTimezones();
 }
 
@@ -189,6 +191,9 @@ class SupabaseMetricsRepository implements MetricsRepository {
             'p_local_date': request.localDate.iso,
             'p_timezone': request.timezone,
             'p_idempotency_key': request.idempotencyKey,
+            // Only when confirmed: an ordinary entry keeps the former
+            // six-argument call.
+            if (request.confirmDuplicate) 'p_confirm_duplicate': true,
           },
         );
         return EntryResult.fromResponse(data);
@@ -315,9 +320,11 @@ class SupabaseMetricsRepository implements MetricsRepository {
   });
 
   @override
-  Future<Overview> loadOverview() => guardRead(
+  Future<Overview> loadOverview({required LocalDate today}) => guardRead(
     'loadOverview',
-    () async => Overview.fromResponse(await _client.rpc('get_overview')),
+    () async => Overview.fromResponse(
+      await _client.rpc('get_overview', params: {'p_today': today.iso}),
+    ),
   );
 
   @override

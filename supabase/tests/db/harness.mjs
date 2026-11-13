@@ -86,11 +86,30 @@ function freePort() {
   });
 }
 
-/** Runs [fn] in a transaction that is always rolled back. */
-export async function inRollback(pool, fn) {
+/**
+ * Instant the tests run at, unless they ask for the real clock: the scenario
+ * dates (2026-…) stay within the one-year entry window whatever the day the
+ * suite runs. 12:00 UTC is already 13 November in UTC+14 and still
+ * 12 November in UTC-11.
+ */
+export const PINNED_NOW = '2026-11-12 12:00:00+00';
+
+/**
+ * Runs [fn] in a transaction that is always rolled back. "Today"
+ * (private.local_today) is pinned to [PINNED_NOW] inside it, by replacing the
+ * function in this transaction only (rolled back with it); [realClock] keeps
+ * the migration's function.
+ */
+export async function inRollback(pool, fn, { realClock = false } = {}) {
   const client = await pool.connect();
   try {
     await client.query('begin');
+    if (!realClock) {
+      await client.query(`
+        create or replace function private.local_today(p_timezone text)
+        returns date language sql stable set search_path = ''
+        as $$ select (timestamptz '${PINNED_NOW}' at time zone p_timezone)::date $$`);
+    }
     return await fn(client);
   } finally {
     await client.query('rollback');
@@ -178,10 +197,17 @@ export async function record(client, userMetricId, value, {
   date = '2026-11-02',
   timezone = 'Europe/Paris',
   key = randomUUID(),
+  confirmDuplicate,
 } = {}) {
-  const { rows } = await client.query(
-    'select public.record_metric_entry($1, $2, $3, $4, $5, $6) as result',
-    [userMetricId, value, unit, date, timezone, key],
-  );
+  // Without confirmDuplicate: the six-argument call of the former contract.
+  const { rows } = confirmDuplicate === undefined
+    ? await client.query(
+      'select public.record_metric_entry($1, $2, $3, $4, $5, $6) as result',
+      [userMetricId, value, unit, date, timezone, key],
+    )
+    : await client.query(
+      'select public.record_metric_entry($1, $2, $3, $4, $5, $6, $7) as result',
+      [userMetricId, value, unit, date, timezone, key, confirmDuplicate],
+    );
   return rows[0].result;
 }

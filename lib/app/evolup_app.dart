@@ -14,6 +14,7 @@ import '../features/auth/password_recovery_screen.dart';
 import '../features/auth/sign_in_screen.dart';
 import '../theme/evolup_theme.dart';
 import 'session/app_session.dart';
+import 'session/local_day_clock.dart';
 import 'session/metrics_controller.dart';
 import 'shell/app_shell.dart';
 import 'widgets/evolup_background.dart';
@@ -28,12 +29,16 @@ class SessionServices {
     required this.metrics,
     this.coach,
     this.deviceTimezone = const PlatformDeviceTimezone(),
+    this.now = DateTime.now,
   });
 
   final ProfileRepository profiles;
   final MetricsRepository metrics;
   final CoachRepository? coach;
   final DeviceTimezone deviceTimezone;
+
+  /// The device's clock (tests replace it).
+  final DateTime Function() now;
 }
 
 class EvolupApp extends StatefulWidget {
@@ -196,15 +201,23 @@ class _AppGateState extends State<AppGate> {
     final auth = widget.authRepository;
     if (services == null || auth == null) return;
     MetricsController? metrics;
+    LocalDayClock? day;
     try {
       final timezone = await services.deviceTimezone.current() ?? 'UTC';
       final profile = await services.profiles.loadOrCreate(timezone: timezone);
-      metrics = MetricsController(services.metrics);
+      final clock = day = LocalDayClock(now: services.now);
+      metrics = MetricsController(
+        services.metrics,
+        now: services.now,
+        today: () => clock.today,
+      );
       await metrics.load();
       if (!mounted || userId != _userId) {
         metrics.dispose();
+        clock.dispose();
         return;
       }
+      clock.watch();
       _publish(
         SignedInSession(
           userId: userId,
@@ -213,12 +226,14 @@ class _AppGateState extends State<AppGate> {
           metrics: metrics,
           coach: services.coach,
           deviceTimezone: services.deviceTimezone,
+          day: clock,
           signOut: _signOut,
         ),
       );
       setState(() => _loading = false);
     } on Object catch (error) {
       metrics?.dispose();
+      day?.dispose();
       if (!mounted || userId != _userId) return;
       setState(() {
         _loadError = error;

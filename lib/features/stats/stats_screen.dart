@@ -9,6 +9,7 @@ import '../../app/widgets/evolup_page.dart';
 import '../../app/widgets/glass_card.dart';
 import '../../app/widgets/labeled_dropdown.dart';
 import '../../app/widgets/state_views.dart';
+import '../../app/widgets/status_message.dart';
 import '../../data/data_error.dart';
 import '../../data/local_date.dart';
 import '../../data/metrics/metric_models.dart';
@@ -115,13 +116,18 @@ class _StatsScreenState extends State<StatsScreen> with RevisionReload {
     final second = withData
         .where((e) => e.$2.id == _secondId && e.$2.id != selected.$2.id)
         .firstOrNull;
-    final today = LocalDate.today();
+    final today = deviceToday;
     final firstDates = [
       selected.$1.firstDate,
       second?.$1.firstDate,
     ].whereType<LocalDate>().toList()..sort();
     final firstDate = firstDates.firstOrNull;
     final (from, to) = _period.range(today, firstDate);
+    // « Jour » only up to 365 days: beyond, the chosen grouping gives way to
+    // the automatic one (weeks or months), and the page says so.
+    final dayAvailable = dayBucketAvailable(from, to);
+    final dayRefused = _bucket == SeriesBucket.day && !dayAvailable;
+    final bucket = dayRefused ? null : _bucket;
 
     DropdownMenuItem<String> item(
       (OverviewMetric, TrackedMetric, MetricDefinition) e,
@@ -148,9 +154,22 @@ class _StatsScreenState extends State<StatsScreen> with RevisionReload {
       ),
       const SizedBox(height: 8),
       BucketSelector(
-        value: _bucket,
+        value: bucket,
+        dayAvailable: dayAvailable,
         onChanged: (value) => setState(() => _bucket = value),
       ),
+      if (!dayAvailable) ...[
+        const SizedBox(height: 8),
+        StatusMessage(
+          key: const Key('stats-day-unavailable'),
+          message:
+              '${dayRefused ? 'Regroupement automatique affiché : ' : ''}'
+              'le regroupement par jour est disponible jusqu’à '
+              '$maxDayBucketDays jours, et cette période en compte '
+              '${periodLength(from, to)}. Choisissez « Semaine » ou '
+              '« Mois », ou une période plus courte.',
+        ),
+      ],
       const SizedBox(height: 14),
       MetricAnalysis(
         key: ValueKey('analysis-${selected.$2.id}'),
@@ -158,8 +177,7 @@ class _StatsScreenState extends State<StatsScreen> with RevisionReload {
         definition: selected.$3,
         period: _period,
         firstDate: firstDate,
-        bucket: _bucket,
-        today: today,
+        bucket: bucket,
       ),
       TextButton.icon(
         onPressed: () => unawaited(openMetricDetail(context, selected.$2)),
@@ -189,13 +207,14 @@ class _StatsScreenState extends State<StatsScreen> with RevisionReload {
         const SizedBox(height: 12),
         _ComparisonCharts(
           key: ValueKey(
-            'compare-${selected.$2.id}-${second.$2.id}-$_period-$_bucket',
+            'compare-${selected.$2.id}-${second.$2.id}-$_period-$bucket',
           ),
           first: (selected.$2, selected.$3),
           second: (second.$2, second.$3),
           from: from,
           to: to,
-          bucket: _bucket,
+          bucket: bucket,
+          today: today,
         ),
       ],
     ];
@@ -211,6 +230,7 @@ class _ComparisonCharts extends StatefulWidget {
     required this.from,
     required this.to,
     required this.bucket,
+    required this.today,
     super.key,
   });
 
@@ -219,6 +239,7 @@ class _ComparisonCharts extends StatefulWidget {
   final LocalDate from;
   final LocalDate to;
   final SeriesBucket? bucket;
+  final LocalDate today;
 
   @override
   State<_ComparisonCharts> createState() => _ComparisonChartsState();
@@ -234,15 +255,16 @@ class _ComparisonChartsState extends State<_ComparisonCharts>
   Future<void> reload() async {
     final request = ++_request;
     try {
-      final repository = metrics.repository;
-      // Same grouping for both: the first series decides it in 'auto'.
-      final first = await repository.loadSeries(
+      // Same grouping for both: the first series decides it in 'auto'. The
+      // first one is the series the analysis above already asked for: the
+      // controller shares it (one request).
+      final first = await metrics.loadSeries(
         widget.first.$1.id,
         widget.from,
         widget.to,
         bucket: widget.bucket,
       );
-      final second = await repository.loadSeries(
+      final second = await metrics.loadSeries(
         widget.second.$1.id,
         widget.from,
         widget.to,
@@ -287,6 +309,7 @@ class _ComparisonChartsState extends State<_ComparisonCharts>
             series: s,
             from: widget.from,
             to: widget.to,
+            today: widget.today,
             height: 160,
             secondary: secondary,
           ),

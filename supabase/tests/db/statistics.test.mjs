@@ -193,7 +193,7 @@ describe('statistics', () => {
       await c.query("insert into public.profiles (timezone) values ('Asia/Tokyo')");
       await c.query('update public.user_metrics set is_favorite = true where id = $1', [sleep]);
       const { rows: today } = await c.query(
-        "select (now() at time zone 'Asia/Tokyo')::date as d",
+        "select private.local_today('Asia/Tokyo') as d",
       );
       const tokyoToday = today[0].d;
       const d = (offset) => {

@@ -39,6 +39,8 @@ class MetricAnalysis extends StatefulWidget {
 
   /// `null` = automatic grouping.
   final SeriesBucket? bucket;
+
+  /// Overrides the device's day (tests); by default the session's.
   final LocalDate? today;
 
   @override
@@ -75,6 +77,7 @@ class _AnalysisData {
   const _AnalysisData(
     this.query,
     this.period,
+    this.today,
     this.stats,
     this.series,
     this.comparison,
@@ -82,6 +85,9 @@ class _AnalysisData {
 
   final _Query query;
   final StatsPeriod period;
+
+  /// The device's day when it was loaded (incomplete weeks and months).
+  final LocalDate today;
   final MetricStatistics stats;
   final MetricSeries series;
   final PeriodComparison? comparison;
@@ -102,7 +108,7 @@ class _MetricAnalysisState extends State<MetricAnalysis> with RevisionReload {
   /// query does not load it again.
   _Query? _asked;
 
-  LocalDate get _today => widget.today ?? LocalDate.today();
+  LocalDate get _today => widget.today ?? deviceToday;
 
   /// The first recorded day only matters for « Tout »: for the other
   /// periods, learning it must not reload anything.
@@ -134,11 +140,13 @@ class _MetricAnalysisState extends State<MetricAnalysis> with RevisionReload {
     _error = null;
     final period = widget.period;
     final repository = metrics.repository;
+    final today = _today;
     final id = query.trackedId;
     final previous = query.previous;
     try {
       final stats = repository.loadStatistics(id, query.from, query.to);
-      final series = repository.loadSeries(
+      // Shared with the comparison of two metrics (same query, one request).
+      final series = metrics.loadSeries(
         id,
         query.from,
         query.to,
@@ -159,6 +167,7 @@ class _MetricAnalysisState extends State<MetricAnalysis> with RevisionReload {
         _data = _AnalysisData(
           query,
           period,
+          today,
           results[0]! as MetricStatistics,
           results[1]! as MetricSeries,
           results[2] as PeriodComparison?,
@@ -302,6 +311,7 @@ class _MetricAnalysisState extends State<MetricAnalysis> with RevisionReload {
                 series: data.series,
                 from: data.from,
                 to: data.to,
+                today: data.today,
               ),
               if (data.series.points.length < 2) ...[
                 const SizedBox(height: 8),

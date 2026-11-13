@@ -7,7 +7,6 @@ import '../../app/widgets/confirm_dialog.dart';
 import '../../app/widgets/evolup_page.dart';
 import '../../app/widgets/state_views.dart';
 import '../../data/data_error.dart';
-import '../../data/local_date.dart';
 import '../../data/metrics/metric_models.dart';
 import '../../data/metrics/metric_values.dart';
 import '../../theme/evolup_theme.dart';
@@ -132,7 +131,7 @@ class _MyDataScreenState extends State<MyDataScreen> with RevisionReload {
   Widget build(BuildContext context) {
     final colors = EvolupColors.of(context);
     final overview = _overview;
-    final today = overview?.today ?? LocalDate.today();
+    final today = deviceToday;
     final active = [
       for (final t in metrics.activeTracked)
         if (metrics.definition(t.metricCatalogId) case final d?)

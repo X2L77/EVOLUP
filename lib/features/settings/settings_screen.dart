@@ -157,8 +157,11 @@ class _SettingsScreenState extends State<SettingsScreen> with RevisionReload {
                 leading: const Icon(Icons.public_rounded),
                 title: const Text('Fuseau horaire'),
                 subtitle: Text(
-                  '${profile.timezone} · utilisé pour « aujourd’hui » dans '
-                  'vos statistiques',
+                  // Owner's decision of 2026-11-12: "today" and new entries
+                  // follow the device; the profile zone is the fallback.
+                  '${profile.timezone} · « Aujourd’hui » suit la date de '
+                  'votre appareil. Ce fuseau sert à Polomix, et aux saisies '
+                  'si celui de l’appareil est illisible.',
                 ),
                 trailing: const Icon(Icons.edit_outlined),
                 onTap: _saving ? null : () => unawaited(_editTimezone(profile)),

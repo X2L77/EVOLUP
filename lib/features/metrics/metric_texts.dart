@@ -14,8 +14,8 @@ String aggregationExplanation(MetricDefinition metric) =>
     };
 
 const duplicateRule =
-    'Une valeur identique déjà saisie le même jour n’est pas comptée deux '
-    'fois.';
+    'Si la même valeur est déjà enregistrée ce jour-là, EVOLUP vous demande '
+    's’il s’agit d’une nouvelle mesure avant de la compter.';
 
 /// [singular] for 0 and 1, [plural] from 2 (French rule).
 String pluralize(int count, String singular, String plural) =>

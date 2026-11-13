@@ -236,6 +236,7 @@ class EntryRequest {
     required this.localDate,
     required this.timezone,
     required this.idempotencyKey,
+    this.confirmDuplicate = false,
   });
 
   final String trackedMetricId;
@@ -244,13 +245,29 @@ class EntryRequest {
   final LocalDate localDate;
   final String timezone;
   final String idempotencyKey;
+
+  /// The user confirmed that a value identical to one already recorded that
+  /// day is a new measure: it is counted (otherwise it is a [duplicate]).
+  final bool confirmDuplicate;
+
+  /// The same entry (same key), confirmed as a new measure.
+  EntryRequest confirmed() => EntryRequest(
+    trackedMetricId: trackedMetricId,
+    value: value,
+    unit: unit,
+    localDate: localDate,
+    timezone: timezone,
+    idempotencyKey: idempotencyKey,
+    confirmDuplicate: true,
+  );
 }
 
 enum EntryStatus {
   /// The value was merged into the day.
   recorded,
 
-  /// The same value is already part of this day: nothing changed.
+  /// The same value is already part of this day and the entry was not
+  /// confirmed as a new measure: nothing changed, the app asks the user.
   duplicate,
 
   /// This exact request had already been merged (retry): nothing changed.

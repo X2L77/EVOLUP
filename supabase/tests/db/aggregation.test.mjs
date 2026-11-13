@@ -104,11 +104,11 @@ describe('aggregation', () => {
       const user = await createUser(c);
       const tractions = await track(c, user, 'tractions');
       // Daylight-saving change day in Paris: no shift to the previous day.
-      await record(c, tractions, 9, { date: '2025-03-30', timezone: 'Europe/Paris' });
-      const row = await day(c, tractions, '2025-03-30');
+      await record(c, tractions, 9, { date: '2026-03-29', timezone: 'Europe/Paris' });
+      const row = await day(c, tractions, '2026-03-29');
       assert.equal(row.sample_count, 1);
       assert.equal(row.timezone_name, 'Europe/Paris');
-      assert.equal(await day(c, tractions, '2025-03-29'), undefined);
+      assert.equal(await day(c, tractions, '2026-03-28'), undefined);
     }));
 
   test('"today" is checked in the zone of the entry, not in UTC', () =>
@@ -116,8 +116,10 @@ describe('aggregation', () => {
       const user = await createUser(c);
       const tractions = await track(c, user, 'tractions');
       const { rows } = await c.query(`
-        select (now() at time zone 'Pacific/Kiritimati')::date::text as east,
-               (now() at time zone 'Pacific/Pago_Pago')::date::text as west`);
+        select private.local_today('Pacific/Kiritimati')::text as east,
+               private.local_today('Pacific/Pago_Pago')::text as west`);
+      // At the pinned instant (12:00 UTC) the two zones are on different days.
+      assert.notEqual(rows[0].east, rows[0].west);
       // UTC+14 can already be "tomorrow" compared with UTC: accepted there.
       assert.equal(
         (await record(c, tractions, 9, { date: rows[0].east, timezone: 'Pacific/Kiritimati' })).status,
@@ -132,7 +134,7 @@ describe('aggregation', () => {
           }));
       }
       const tomorrow = await c.query(
-        "select ((now() at time zone 'Europe/Paris')::date + 1)::text as d",
+        "select (private.local_today('Europe/Paris') + 1)::text as d",
       );
       await inSavepoint(c, () =>
         expectPgError(record(c, tractions, 10, { date: tomorrow.rows[0].d }), {
@@ -289,11 +291,11 @@ describe('aggregation', () => {
     inRollback(pool, async (c) => {
       const user = await createUser(c);
       const tractions = await track(c, user, 'tractions');
-      await record(c, tractions, 8, { date: '2025-06-01' });
+      await record(c, tractions, 8, { date: '2026-06-01' });
       await record(c, tractions, 9, { date: '2026-11-02' });
       const overview = (await c.query('select public.get_overview() as o')).rows[0].o;
-      assert.equal(overview.metrics[0].first_date, '2025-06-01');
-      assert.equal(overview.first_date, '2025-06-01');
+      assert.equal(overview.metrics[0].first_date, '2026-06-01');
+      assert.equal(overview.first_date, '2026-06-01');
       assert.equal(overview.metrics[0].days_count, 2);
     }));
 
